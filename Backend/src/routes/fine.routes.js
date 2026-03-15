@@ -14,7 +14,7 @@ router.get("/pending", protect, getPendingFines);
 
 router.route("/price-table")
     .get(protect,  getMealPrices)
-    .post(protect,  setMealPrices);
+    .post(protect,  setMealPrices); 
 
 
 // user

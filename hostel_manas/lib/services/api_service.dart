@@ -6,7 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 // Assuming this contains your convertMealsToWeekly logic
 
 class ApiService {
-  final String baseUrl = "http://192.168.0.39:5000/api";
+  final String baseUrl = "https://hostel-management-3e61.onrender.com/api";
 
   // Helper to get headers with Bearer token
   Future<Map<String, String>> _getHeaders() async {

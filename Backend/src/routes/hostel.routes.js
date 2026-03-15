@@ -9,6 +9,6 @@ const router = Router();
 router.get("/get", getHostels);
 
 // createHostel - to create a new hostel
-router.post("/create", protect, createHostel);
+router.post("/create", createHostel);
 
 export default router;
