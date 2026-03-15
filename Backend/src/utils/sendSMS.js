@@ -3,20 +3,22 @@ import nodemailer from "nodemailer";
 export const sendEmail = async (email, message) => {
   try {
     const transporter = nodemailer.createTransport({
-      host: "smtp.gmail.com",
+      // ✅ Use the direct IP instead of the hostname to bypass IPv6 issues
+      host: "74.125.24.108", 
       port: 465,
-      secure: true, // Use SSL
+      secure: true,
       auth: {
         user: process.env.GMAIL_EMAIL,
         pass: process.env.GMAIL_APP_PASSWORD
       },
-      // ✅ FORCES IPv4 (Fixes ENETUNREACH on Render)
+      // ✅ Force IPv4 stack
       family: 4, 
-      // Improves performance by reusing connections
-      pool: true, 
-      // Prevents the connection from hanging too long
-      connectionTimeout: 10000, 
-      greetingTimeout: 5000,
+      // ✅ Crucial for Gmail when using IP directly
+      tls: {
+        servername: 'smtp.gmail.com',
+        rejectUnauthorized: false // Helps if Render has certificate trust issues
+      },
+      connectionTimeout: 20000, // Increased timeout for Render Free Tier
     });
 
     const mailOptions = {
@@ -30,11 +32,6 @@ export const sendEmail = async (email, message) => {
     console.log("✅ Email sent successfully:", info.response);
 
   } catch (error) {
-    // If it still fails, this log will help us see exactly why
-    console.error("❌ Email error details:", {
-      code: error.code,
-      command: error.command,
-      message: error.message
-    });
+    console.error("❌ Email error details:", error);
   }
 };
