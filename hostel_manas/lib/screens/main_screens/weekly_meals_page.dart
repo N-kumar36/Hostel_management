@@ -1,5 +1,6 @@
 import 'package:HostelMess/screens/main_screens/utility/vote_page.dart';
 import 'package:HostelMess/services/api_service.dart';
+import 'package:HostelMess/services/dataconnvater.dart'; // Ensure correct path
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -12,16 +13,34 @@ class WeeklyMealsPage extends StatefulWidget {
 
 class _WeeklyMealsPageState extends State<WeeklyMealsPage> {
   final api = ApiService();
+  final dataConverter = Dataconnvater();
   late Future<Map<String, dynamic>> _mealsFuture;
   List<dynamic> _userVoteStatus = [];
+  bool isUserPending = true; // Default to true for safety
 
   @override
   void initState() {
     super.initState();
-    _loadMeals();
+    _checkUserStatusAndLoad();
   }
 
-  // Load meals and then fetch the voting status for those specific meals
+  /// Initial entry point: Check if user is approved, then load meals
+  Future<void> _checkUserStatusAndLoad() async {
+    try {
+      final userData = await dataConverter.getUserData();
+      if (mounted) {
+        setState(() {
+          // If 'pending' string is "pending", isUserPending = true
+          isUserPending = userData?['pending'] == "pending";
+        });
+        _loadMeals();
+      }
+    } catch (e) {
+      debugPrint("Status Check Error: $e");
+      _loadMeals();
+    }
+  }
+
   Future<void> _loadMeals() async {
     setState(() {
       _mealsFuture = api.fetchWeeklyMeals();
@@ -29,23 +48,36 @@ class _WeeklyMealsPageState extends State<WeeklyMealsPage> {
 
     try {
       final meals = await _mealsFuture;
-      // Extract all meal IDs from the map to check status in one batch
-      final ids = meals.values.map((m) => m['_id'].toString()).toList();
+      if (meals.isEmpty) return;
 
-      // Fetch user-specific vote status (voted, served, etc.)
-      final status = await api.checkUserVotes(ids);
+      // Only try to fetch vote status if the user is approved
+      if (!isUserPending) {
+        final ids = meals.values.map((m) => m['_id'].toString()).toList();
+        final status = await api.checkUserVotes(ids);
 
-      if (mounted) {
-        setState(() {
-          _userVoteStatus = status;
-        });
+        if (mounted) {
+          setState(() {
+            _userVoteStatus = status;
+          });
+        }
       }
     } catch (e) {
       debugPrint("Error loading meal status: $e");
+      // Handle the 403 Forbidden case if the backend blocks the call
+      if (e.toString().contains("403") || e.toString().contains("pending")) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Account pending approval. Voting disabled."),
+              backgroundColor: Colors.orange,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
     }
   }
 
-  // Helper to find if a vote exists for a specific meal and slot
   Map<String, dynamic>? _getVoteInfo(String mealId, String slot) {
     try {
       return _userVoteStatus.firstWhere(
@@ -73,28 +105,25 @@ class _WeeklyMealsPageState extends State<WeeklyMealsPage> {
             return const Center(child: CircularProgressIndicator());
           }
 
-          if (snapshot.hasError ||
-              !snapshot.hasData ||
-              snapshot.data!.isEmpty) {
+          if (snapshot.hasError || !snapshot.hasData || snapshot.data!.isEmpty) {
             return _buildErrorState();
           }
 
           final weekly = snapshot.data!;
           final List<String> dates = weekly.keys.toList();
 
-          // Sort dates chronologically
           dates.sort((a, b) {
             try {
-              return DateFormat(
-                "dd/MM/yyyy",
-              ).parse(a).compareTo(DateFormat("dd/MM/yyyy").parse(b));
+              return DateFormat("dd/MM/yyyy").parse(a).compareTo(
+                DateFormat("dd/MM/yyyy").parse(b),
+              );
             } catch (e) {
               return 0;
             }
           });
 
           return RefreshIndicator(
-            onRefresh: _loadMeals,
+            onRefresh: _checkUserStatusAndLoad,
             child: ListView.builder(
               itemCount: dates.length,
               padding: const EdgeInsets.all(12),
@@ -103,7 +132,6 @@ class _WeeklyMealsPageState extends State<WeeklyMealsPage> {
                 final mealData = weekly[dateString];
                 final mealId = mealData['_id'].toString();
 
-                // Get vote info for morning and night
                 final morningVote = _getVoteInfo(mealId, "Morning");
                 final nightVote = _getVoteInfo(mealId, "Night");
 
@@ -180,30 +208,42 @@ class _WeeklyMealsPageState extends State<WeeklyMealsPage> {
                 const SizedBox(width: 10),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.deepPurple,
+                    backgroundColor:
+                        isUserPending ? Colors.grey : Colors.deepPurple,
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => VotePage(
-                          id: mealData['_id'].toString(),
-                          date: date,
-                          morning: Map<String, dynamic>.from(
-                            mealData['morning'],
-                          ),
-                          night: Map<String, dynamic>.from(mealData['night']),
-                        ),
-                      ),
-                    ).then(
-                      (_) => _loadMeals(),
-                    ); // Reload status when returning from voting
-                  },
-                  child: const Text("Vote"),
+                  onPressed:
+                      isUserPending
+                          ? () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text("Wait for Manager Approval"),
+                                backgroundColor: Colors.redAccent,
+                              ),
+                            );
+                          }
+                          : () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder:
+                                    (context) => VotePage(
+                                      id: mealData['_id'].toString(),
+                                      date: date,
+                                      morning: Map<String, dynamic>.from(
+                                        mealData['morning'],
+                                      ),
+                                      night: Map<String, dynamic>.from(
+                                        mealData['night'],
+                                      ),
+                                    ),
+                              ),
+                            ).then((_) => _loadMeals());
+                          },
+                  child: Text(isUserPending ? "Pending" : "Vote"),
                 ),
               ],
             ),
@@ -228,25 +268,25 @@ class _WeeklyMealsPageState extends State<WeeklyMealsPage> {
       children: [
         Icon(icon, size: 18, color: Colors.orange),
         const SizedBox(width: 8),
-
-        // Wrap text + badge together
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              "$label: ${mealSlotData['manu'] ?? 'Not set'}",
-              overflow: TextOverflow.ellipsis,
-            ),
-
-            const SizedBox(width: 4),
-
-            if (isCancelled)
-              _statusBadge("CANCELLED", Colors.red)
-            else if (isServed)
-              _statusBadge("SERVED", Colors.green)
-            else if (isVoted)
-              _statusBadge("VOTED", Colors.blue),
-          ],
+        Expanded(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  "$label: ${mealSlotData['manu'] ?? 'Not set'}",
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 4),
+              if (isCancelled)
+                _statusBadge("CANCELLED", Colors.red)
+              else if (isServed)
+                _statusBadge("SERVED", Colors.green)
+              else if (isVoted)
+                _statusBadge("VOTED", Colors.blue),
+            ],
+          ),
         ),
       ],
     );

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { protect } from "../middleware/authMiddleware.js";
 import { checkPermission } from "../middleware/isManager.js"; // Updated import
+import { isApproved } from "../middleware/statusMiddleware.js";
 import { 
   createMeal, 
   updateMeal, 
@@ -14,9 +15,9 @@ import {
 const router = Router();
 
 // --- Student Access (Any logged-in user) ---
-router.get("/today", protect, getTodayMeals);
-router.get("/week", protect, getWeeklyMeals);
-router.patch("/Status/:studentId", protect, getMealStatus);
+router.get("/today", protect, isApproved, getTodayMeals);
+router.get("/week", protect, isApproved, getWeeklyMeals);
+router.patch("/Status/:studentId", protect, isApproved, getMealStatus);
 
 // --- Manager Access (Requires specific 'mealEdit' permission) ---
 // We use checkPermission("mealEdit") to verify the specific right
