@@ -1,0 +1,47 @@
+name: HostelMess
+description: "A new Flutter project."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.7
+
+dependencies:
+  intl: ^0.19.0
+  flutter:
+    sdk: flutter
+  image_picker: ^1.0.7
+  flutter_local_notifications: ^17.0.0
+  timezone: ^0.9.2 # Required for scheduling notifications
+  flutter_upi_india: ^1.0.1
+  # upi_india: ^3.0.1 # Latest version
+  qr_flutter: ^4.1.0
+  upi_payment_qrcode_generator: ^1.1.0
+
+  cupertino_icons: ^1.0.8
+  # Essential for your API calls and Auth storage
+  http: ^1.1.0 
+  shared_preferences: ^2.2.1
+  google_fonts: ^5.1.0
+  flutter_launcher_icons: ^0.13.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+
+# Add this configuration at the very bottom of the file (not indented under flutter:)
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/logo/Logo.png"
+  adaptive_icon_background: "#6A11CB" # Use your splash screen purple hex
+  adaptive_icon_foreground: "assets/logo/Logo.png"
+
+
+flutter:
+  uses-material-design: true
+
+  # If you decide to add a logo image to your splash screen later:
+  assets:
+    - assets/logo/Logo.png
