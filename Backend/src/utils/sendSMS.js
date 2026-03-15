@@ -3,7 +3,6 @@ import nodemailer from "nodemailer";
 export const sendEmail = async (email, message) => {
   try {
     const transporter = nodemailer.createTransport({
-      service: "gmail",
       host: "smtp.gmail.com",
       port: 587,
       secure: false,
@@ -22,8 +21,9 @@ export const sendEmail = async (email, message) => {
 
     const info = await transporter.sendMail(mailOptions);
 
-    console.log(`✅ Email sent to ${email}`, info.response);
+    console.log("Email sent:", info.response);
+
   } catch (error) {
-    console.error("❌ Email error:", error.message);
+    console.error("❌ Email error:", error);
   }
 };
