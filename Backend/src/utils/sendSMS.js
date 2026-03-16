@@ -1,34 +1,32 @@
-import nodemailer from "nodemailer";
-
+import { BrevoClient } from '@getbrevo/brevo';
 
 export const sendEmail = async (email, message) => {
+  // 1. Initialize the new BrevoClient
+  const client = new BrevoClient({
+    apiKey: process.env.BREVO_API_KEY,
+  });
+
   try {
-    const transporter = nodemailer.createTransport({
-      host: "smtp-relay.brevo.com",
-      port: 587,
-      secure: false, // TLS
-      auth: {
-        user: "a50b40001@smtp-brevo.com",
-        pass: process.env.BREVO_SMTP_KEY
+    // 2. Use the simplified transactionalEmails method
+    const result = await client.transactionalEmails.sendTransacEmail({
+      subject: "OTP Verification",
+      htmlContent: message,
+      sender: { 
+        name: "Hostel Mess", 
+        email: "nitya3666@gmail.com" 
       },
-      family: 4
+      to: [{ 
+        email: email 
+      }],
     });
 
-    const mailOptions = {
-      from: '"Hostel Mess" <nitya3666@gmail.com>',
-      to: email,
-      subject: "OTP Verification",
-      html: message
-    };
-
-    const info = await transporter.sendMail(mailOptions);
-    console.log(" Email sent via Brevo:", info.response);
+    console.log("✅ Email sent successfully! Message ID:", result.messageId);
 
   } catch (error) {
-    // This will help us see if the key is actually missing
-    if (!process.env.BREVO_SMTP_KEY) {
-      console.error("❌ ERROR: BREVO_SMTP_KEY is missing from environment variables!");
+    // 3. Robust error handling
+    console.error("❌ Brevo API Error:", error.message);
+    if (error.body) {
+      console.error("Details:", JSON.stringify(error.body));
     }
-    console.error("❌ Brevo SMTP Error:", error.message);
   }
 };
