@@ -1,6 +1,6 @@
 import { BrevoClient } from '@getbrevo/brevo';
 
-export const sendEmail = async (email, message) => {
+export const sendEmail = async (email, subject, message) => {
   // 1. Initialize the new BrevoClient
   const client = new BrevoClient({
     apiKey: process.env.BREVO_API_KEY,
@@ -9,7 +9,7 @@ export const sendEmail = async (email, message) => {
   try {
     // 2. Use the simplified transactionalEmails method
     const result = await client.transactionalEmails.sendTransacEmail({
-      subject: "OTP Verification",
+      subject: subject,
       htmlContent: message,
       sender: { 
         name: "Hostel Mess", 

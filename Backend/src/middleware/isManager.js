@@ -3,23 +3,24 @@ import ManagerAssignment from "../models/ManagerAssignment.js";
 export const checkPermission = (requiredPermission) => {
   return async (req, res, next) => {
     try {
-      const month = new Date().toISOString().slice(0, 7);
-      console.log("The month", month);
+      //  Removed month calculation
       const manager = await ManagerAssignment.findOne({
         userId: req.user.id,
         hostelId: req.user.hostelId,
-        month,
-        isActive: true
+        isActive: true // Just check if they are currently active
       });
 
       if (!manager) {
-        return res.status(403).json({ success: false, message: "Active Manager record not found for this month." });
+        return res.status(403).json({
+          success: false,
+          message: "Access Denied: You are not an active manager for this hostel."
+        });
       }
 
       if (requiredPermission && !manager.permissions[requiredPermission]) {
-        return res.status(403).json({ 
-          success: false, 
-          message: `Permission denied: Missing ${requiredPermission} rights.` 
+        return res.status(403).json({
+          success: false,
+          message: `Permission denied: Missing ${requiredPermission} rights.`
         });
       }
 

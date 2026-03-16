@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import User from "../models/User.js";
+import ManagerAssignment from "../models/ManagerAssignment.js"; // Import this!
 import Otp from "../models/Otp.js";
 
 import { sendEmail } from "../utils/sendSMS.js";
@@ -22,7 +23,7 @@ export const sendOTP = async (req, res) => {
       { upsert: true, new: true }
     );
 
-    await sendEmail(email, `
+    await sendEmail(email, "KNU Hostel OTP Verification", `
   <div style="font-family: Arial, sans-serif; background:#f4f4f4; padding:30px;">
     <div style="max-width:500px; margin:auto; background:#ffffff; padding:25px; border-radius:8px; text-align:center;">
       
@@ -59,8 +60,9 @@ export const sendOTP = async (req, res) => {
   }
 };
 
+
+
 export const registerUser = async (req, res) => {
-  // 1. EXTRACTION: Ensure names match the Flutter keys exactly
   const {
     name,
     email,
@@ -68,26 +70,22 @@ export const registerUser = async (req, res) => {
     phone,
     otp,
     hostelId,
-    regNum,       // Must match 'regNum' from Flutter
-    department,   // Must match 'department' from Flutter
-    year          // Must match 'year' from Flutter
+    regNum,
+    department,
+    year
   } = req.body;
 
-  console.log("Received registration data:", req.body); // Debug log to check incoming data
-
   try {
-    // 2. OTP VALIDATION
+    // 1. OTP VALIDATION
     const otpRecord = await Otp.findOne({ email: email.toLowerCase() });
     if (!otpRecord || otpRecord.otp !== otp) {
       return res.status(400).json({ success: false, message: "Invalid OTP" });
     }
 
-    // 3. DUPLICATE CHECK
+    // 2. DUPLICATE CHECK
     const existingUser = await User.findOne({
       $or: [{ email: email.toLowerCase() }, { regNum }]
     });
-
-    console.log(existingUser);
 
     if (existingUser) {
       const conflictField = existingUser.email === email.toLowerCase() ? "Email" : "Registration Number";
@@ -97,9 +95,21 @@ export const registerUser = async (req, res) => {
       });
     }
 
+    // 3. CHECK IF THIS IS THE FIRST USER FOR THIS HOSTEL
+    const userCountInHostel = await User.countDocuments({ hostelId });
+    
+    // Determine Role and Approval Status
+    let role = "student";
+    let pendingStatus = "pending";
+
+    if (userCountInHostel === 0) {
+      role = "manager";
+      pendingStatus = "approve"; // First user is auto-approved
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // 4. CREATION: Pass the new academic fields
+    // 4. CREATE THE USER
     const user = await User.create({
       name,
       email: email.toLowerCase(),
@@ -109,18 +119,98 @@ export const registerUser = async (req, res) => {
       department,
       year,
       password: hashedPassword,
+      role: role,
+      pending: pendingStatus
     });
+
+    // 5. IF FIRST USER, ASSIGN MANAGER PERMISSIONS AUTOMATICALLY
+    if (role === "manager") {
+      await ManagerAssignment.create({
+        hostelId: hostelId,
+        userId: user._id,
+        permissions: {
+          mealEdit: true,
+          serveMeal: true,
+          fineManage: true
+        },
+        isActive: true
+      });
+      console.log(`✅ First user ${user.name} registered as Manager with full rights.`);
+    }
 
     await Otp.deleteOne({ email: email.toLowerCase() });
 
     res.status(201).json({
       success: true,
-      user: { id: user._id, name: user.name, role: user.role }
+      user: { id: user._id, name: user.name, role: user.role, status: user.pending }
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+// export const registerUser = async (req, res) => {
+//   // 1. EXTRACTION: Ensure names match the Flutter keys exactly
+//   const {
+//     name,
+//     email,
+//     password,
+//     phone,
+//     otp,
+//     hostelId,
+//     regNum,       // Must match 'regNum' from Flutter
+//     department,   // Must match 'department' from Flutter
+//     year          // Must match 'year' from Flutter
+//   } = req.body;
+
+//   console.log("Received registration data:", req.body); // Debug log to check incoming data
+
+//   try {
+//     // 2. OTP VALIDATION
+//     const otpRecord = await Otp.findOne({ email: email.toLowerCase() });
+//     if (!otpRecord || otpRecord.otp !== otp) {
+//       return res.status(400).json({ success: false, message: "Invalid OTP" });
+//     }
+
+//     // 3. DUPLICATE CHECK
+//     const existingUser = await User.findOne({
+//       $or: [{ email: email.toLowerCase() }, { regNum }]
+//     });
+
+//     console.log(existingUser);
+
+//     if (existingUser) {
+//       const conflictField = existingUser.email === email.toLowerCase() ? "Email" : "Registration Number";
+//       return res.status(400).json({
+//         success: false,
+//         message: `${conflictField} is already registered.`
+//       });
+//     }
+
+//     const hashedPassword = await bcrypt.hash(password, 10);
+
+//     // 4. CREATION: Pass the new academic fields
+//     const user = await User.create({
+//       name,
+//       email: email.toLowerCase(),
+//       phone,
+//       hostelId,
+//       regNum,
+//       department,
+//       year,
+//       password: hashedPassword,
+//     });
+
+//     await Otp.deleteOne({ email: email.toLowerCase() });
+
+//     res.status(201).json({
+//       success: true,
+//       user: { id: user._id, name: user.name, role: user.role }
+//     });
+//   } catch (err) {
+//     res.status(500).json({ success: false, message: err.message });
+//   }
+// };
 
 
 export const loginUser = async (req, res) => {
@@ -194,11 +284,12 @@ export const OtpForgetPass = async (req, res) => {
 
     await sendEmail(
       email,
+      "KNU Hostel OTP Verification",
       `
   <div style="font-family: Arial, sans-serif; background:#f4f6f8; padding:30px;">
     <div style="max-width:500px; margin:auto; background:#ffffff; padding:25px; border-radius:8px; text-align:center; box-shadow:0 2px 8px rgba(0,0,0,0.1);">
       
-      <h2 style="color:#333;">KNU Boys Hostel</h2>
+      <h2 style="color:#333;">KNU Hostel</h2>
       
       <p style="font-size:16px; color:#555;">
         You requested to reset your password.
@@ -282,9 +373,9 @@ export const getAllStudents = async (req, res) => {
     // We get the hostelId from the protect middleware (the logged-in manager)
     const hostelId = req.user.hostelId;
 
-    const students = await User.find({ 
-      hostelId: hostelId, 
-      role: 'student' 
+    const students = await User.find({
+      hostelId: hostelId,
+      role: 'student'
     }).select("name email photoURL roomNumber"); // Only return necessary fields
 
     res.status(200).json({
