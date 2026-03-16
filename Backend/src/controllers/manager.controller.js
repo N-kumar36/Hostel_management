@@ -1,6 +1,8 @@
 // controllers/manager.controller.js
 import ManagerAssignment from "../models/ManagerAssignment.js";
 import User from "../models/User.js";
+import Fine from '../models/fine.model.js';
+import Vote from '../models/Vote.js';
 
 export const assignManager = async (req, res) => {
   try {
@@ -181,3 +183,56 @@ export const getAllHostelStudent = async (req, res) => {
   }
 }
 
+export const getStudentSummary = async (req, res) => {
+  const { studentId } = req.params;
+
+  try {
+    // 1. Total Votes: Count every meal record (Personal + Guest)
+    // In your schema, the existence of a document MEANS they voted.
+    const totalVotes = await Vote.countDocuments({ 
+      userId: studentId 
+    });
+
+    // 2. Total Served: Count meals actually consumed (Personal + Guest)
+    const totalServed = await Vote.countDocuments({ 
+      userId: studentId, 
+      isServed: true 
+    });
+
+    // 3. Breakdown for UI
+    // Student's own meals (isGuest is false)
+    const studentOwnVotes = await Vote.countDocuments({ 
+      userId: studentId, 
+      isGuest: false
+    });
+    
+    // Guest meals only
+    const totalGuestVotes = await Vote.countDocuments({ 
+      userId: studentId, 
+      isGuest: true
+    });
+
+    // 4. Fine Calculations (Using studentId to match your Fine model)
+    const fines = await Fine.find({ studentId }); 
+    
+    const pendingFines = fines
+      .filter(f => f.status === 'pending')
+      .reduce((sum, f) => sum + f.amount, 0);
+      
+    const paidFines = fines
+      .filter(f => f.status === 'success')
+      .reduce((sum, f) => sum + f.amount, 0);
+
+    res.json({
+      success: true,
+      totalVotes,       // Sum of studentOwnVotes + totalGuestVotes
+      totalServed,      
+      studentOwnVotes,  
+      totalGuestVotes,  
+      pendingFines,
+      paidFines
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};

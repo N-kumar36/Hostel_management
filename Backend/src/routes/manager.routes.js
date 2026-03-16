@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { protect } from "../middleware/authMiddleware.js";
-import { assignManager, getCurrentManager, pendingStudent, pendingApprove, pendingReject, getAllHostelStudent } from "../controllers/manager.controller.js";
+import { assignManager, getCurrentManager, pendingStudent, pendingApprove, pendingReject, getAllHostelStudent, getStudentSummary } from "../controllers/manager.controller.js";
 import { upsertWeeklyRoutine, getWeeklyRoutine } from "../controllers/WeeklyRoutine.controller.js";
 const router = Router();
 
@@ -17,5 +17,6 @@ router.patch("/reject/:id", protect, pendingReject);
 router.get("/get-student", protect, getAllHostelStudent);
 router.post("/create-routine", protect, upsertWeeklyRoutine);
 router.get("/get-routine", protect, getWeeklyRoutine);
+router.get("/Status/:studentId", protect, getStudentSummary );
 
 export default router;

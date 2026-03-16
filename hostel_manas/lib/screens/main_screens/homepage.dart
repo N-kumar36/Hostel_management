@@ -103,12 +103,12 @@ class _HomepageState extends State<Homepage> {
         ),
         backgroundColor: themeColor,
         elevation: 0,
-        actions: [
-          IconButton(
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const NotificationPage())),
-            icon: const Icon(Icons.notifications_active, color: Colors.white),
-          ),
-        ],
+        // actions: [
+        //   IconButton(
+        //     onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const NotificationPage())),
+        //     icon: const Icon(Icons.notifications_active, color: Colors.white),
+        //   ),
+        // ],
       ),
       body: RefreshIndicator(
         onRefresh: _handleRefresh,

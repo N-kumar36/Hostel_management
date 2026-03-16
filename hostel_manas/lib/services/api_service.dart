@@ -252,7 +252,7 @@ class ApiService {
   // get meal status ech student
   Future<Map<String, dynamic>> getMealStatus(String studentOd) async {
     try {
-      final response = await http.get(
+      final response = await http.patch(
         Uri.parse('$baseUrl/meals/Status/$studentOd'),
         headers: await _getHeaders(),
       );
@@ -933,6 +933,23 @@ class ApiService {
     } catch (e) {
       debugPrint("createIndividualFine Error: $e");
       return false;
+    }
+  }
+
+  // get student sumary
+    Future<Map<String, dynamic>> getStudentSummary(String studentOd) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/managers/Status/$studentOd'),
+        headers: await _getHeaders(),
+      );
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        throw Exception('Failed to load history');
+      }
+    } catch (e) {
+      rethrow;
     }
   }
 }

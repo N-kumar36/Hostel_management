@@ -1,5 +1,6 @@
-import 'package:HostelMess/services/api_service.dart';
 import 'package:flutter/material.dart';
+import 'package:HostelMess/services/api_service.dart';
+import 'package:HostelMess/screens/managerScreen/student_details_page/student_details_page.dart';
 
 class AllHostelStudentPage extends StatefulWidget {
   const AllHostelStudentPage({super.key});
@@ -10,7 +11,7 @@ class AllHostelStudentPage extends StatefulWidget {
 
 class _AllHostelStudentPageState extends State<AllHostelStudentPage> {
   final api = ApiService();
-  
+
   List<dynamic> allStudents = [];
   List<dynamic> filteredStudents = [];
   bool isLoading = true;
@@ -53,15 +54,18 @@ class _AllHostelStudentPageState extends State<AllHostelStudentPage> {
     setState(() {
       filteredStudents = allStudents.where((student) {
         // Search Logic (Name, Reg, or Email)
-        final matchesSearch = student['name'].toString().toLowerCase().contains(query) ||
+        final matchesSearch =
+            student['name'].toString().toLowerCase().contains(query) ||
             student['regNum'].toString().toLowerCase().contains(query) ||
             student['email'].toString().toLowerCase().contains(query);
 
         // Filter Logic (Department)
-        final matchesDept = selectedDept == "All" || student['department'] == selectedDept;
+        final matchesDept =
+            selectedDept == "All" || student['department'] == selectedDept;
 
         // Filter Logic (Year)
-        final matchesYear = selectedYear == "All" || student['year'] == selectedYear;
+        final matchesYear =
+            selectedYear == "All" || student['year'] == selectedYear;
 
         return matchesSearch && matchesDept && matchesYear;
       }).toList();
@@ -73,7 +77,10 @@ class _AllHostelStudentPageState extends State<AllHostelStudentPage> {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text("Hostel Students", style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text(
+          "Hostel Students",
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         centerTitle: true,
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
@@ -104,15 +111,29 @@ class _AllHostelStudentPageState extends State<AllHostelStudentPage> {
                 // Filter Dropdowns
                 Row(
                   children: [
-                    Expanded(child: _buildFilterDropdown("Dept", ["All", "B.Tech", "MBA", "MCA", "B.Sc"], (val) {
-                      selectedDept = val!;
-                      _applySearchAndFilter();
-                    }, selectedDept)),
+                    Expanded(
+                      child: _buildFilterDropdown(
+                        "Dept",
+                        ["All", "B.Tech", "MBA", "MCA", "B.Sc"],
+                        (val) {
+                          selectedDept = val!;
+                          _applySearchAndFilter();
+                        },
+                        selectedDept,
+                      ),
+                    ),
                     const SizedBox(width: 8),
-                    Expanded(child: _buildFilterDropdown("Year", ["All", "1st Year", "2nd Year", "3rd Year", "4th Year"], (val) {
-                      selectedYear = val!;
-                      _applySearchAndFilter();
-                    }, selectedYear)),
+                    Expanded(
+                      child: _buildFilterDropdown(
+                        "Year",
+                        ["All", "1st Year", "2nd Year", "3rd Year", "4th Year"],
+                        (val) {
+                          selectedYear = val!;
+                          _applySearchAndFilter();
+                        },
+                        selectedYear,
+                      ),
+                    ),
                   ],
                 ),
               ],
@@ -123,23 +144,32 @@ class _AllHostelStudentPageState extends State<AllHostelStudentPage> {
       body: isLoading
           ? const Center(child: CircularProgressIndicator(color: Colors.purple))
           : errorMessage != null
-              ? _buildErrorState(errorMessage!.contains("SocketException"), errorMessage!)
-              : filteredStudents.isEmpty
-                  ? _buildEmptyState()
-                  : RefreshIndicator(
-                      onRefresh: _fetchData,
-                      color: Colors.purple,
-                      child: ListView.builder(
-                        padding: const EdgeInsets.all(16),
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        itemCount: filteredStudents.length,
-                        itemBuilder: (context, index) => _buildStudentTile(filteredStudents[index]),
-                      ),
-                    ),
+          ? _buildErrorState(
+              errorMessage!.contains("SocketException"),
+              errorMessage!,
+            )
+          : filteredStudents.isEmpty
+          ? _buildEmptyState()
+          : RefreshIndicator(
+              onRefresh: _fetchData,
+              color: Colors.purple,
+              child: ListView.builder(
+                padding: const EdgeInsets.all(16),
+                physics: const AlwaysScrollableScrollPhysics(),
+                itemCount: filteredStudents.length,
+                itemBuilder: (context, index) =>
+                    _buildStudentTile(filteredStudents[index]),
+              ),
+            ),
     );
   }
 
-  Widget _buildFilterDropdown(String label, List<String> items, ValueChanged<String?> onChanged, String currentVal) {
+  Widget _buildFilterDropdown(
+    String label,
+    List<String> items,
+    ValueChanged<String?> onChanged,
+    String currentVal,
+  ) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
@@ -150,8 +180,14 @@ class _AllHostelStudentPageState extends State<AllHostelStudentPage> {
         child: DropdownButton<String>(
           value: currentVal,
           isExpanded: true,
-          style: const TextStyle(fontSize: 13, color: Colors.purple, fontWeight: FontWeight.w600),
-          items: items.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+          style: const TextStyle(
+            fontSize: 13,
+            color: Colors.purple,
+            fontWeight: FontWeight.w600,
+          ),
+          items: items
+              .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+              .toList(),
           onChanged: onChanged,
         ),
       ),
@@ -169,17 +205,40 @@ class _AllHostelStudentPageState extends State<AllHostelStudentPage> {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.grey.shade200),
       ),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: Colors.purple.withOpacity(0.1),
-          backgroundImage: photo.isNotEmpty ? NetworkImage(photo) : null,
-          child: photo.isEmpty ? Text(student['name'][0].toUpperCase(), style: const TextStyle(color: Colors.purple)) : null,
-        ),
-        title: Text(student['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text("${student['department']} | ${student['year']}\nReg: ${student['regNum']}"),
-        trailing: IconButton(
-          icon: const Icon(Icons.info_outline, color: Colors.purple),
-          onPressed: () => _showStudentDetails(student),
+      child: InkWell(
+        // ✅ ADD THIS
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => StudentDetailsPage(student: student,),
+            ),
+          );
+        },
+        child: ListTile(
+          leading: CircleAvatar(
+            backgroundColor: Colors.purple.withOpacity(0.1),
+            backgroundImage: photo.isNotEmpty ? NetworkImage(photo) : null,
+            child: photo.isEmpty
+                ? Text(
+                    student['name'][0].toUpperCase(),
+                    style: const TextStyle(color: Colors.purple),
+                  )
+                : null,
+          ),
+          title: Text(
+            student['name'],
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          subtitle: Text(
+            "${student['department']} | ${student['year']}\nReg: ${student['regNum']}",
+          ),
+          trailing: const Icon(
+            Icons.arrow_forward_ios,
+            size: 16,
+            color: Colors.grey,
+          ),
         ),
       ),
     );
@@ -192,7 +251,10 @@ class _AllHostelStudentPageState extends State<AllHostelStudentPage> {
         children: [
           Icon(Icons.search_off, size: 60, color: Colors.grey[300]),
           const SizedBox(height: 16),
-          const Text("No students match your criteria", style: TextStyle(color: Colors.grey)),
+          const Text(
+            "No students match your criteria",
+            style: TextStyle(color: Colors.grey),
+          ),
         ],
       ),
     );
@@ -203,7 +265,11 @@ class _AllHostelStudentPageState extends State<AllHostelStudentPage> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(isOffline ? Icons.wifi_off : Icons.error_outline, size: 50, color: Colors.red),
+          Icon(
+            isOffline ? Icons.wifi_off : Icons.error_outline,
+            size: 50,
+            color: Colors.red,
+          ),
           Text(isOffline ? "No Internet" : "Error occurred"),
           TextButton(onPressed: _fetchData, child: const Text("Retry")),
         ],
@@ -214,13 +280,18 @@ class _AllHostelStudentPageState extends State<AllHostelStudentPage> {
   void _showStudentDetails(dynamic student) {
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (context) => Padding(
         padding: const EdgeInsets.all(20.0),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text("Student Details", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const Text(
+              "Student Details",
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
             const Divider(),
             _detailRow(Icons.phone, "Phone", student['phone']),
             _detailRow(Icons.email, "Email", student['email']),
