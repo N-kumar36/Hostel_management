@@ -1,3 +1,4 @@
+import 'package:HostelMess/screens/main_screens/my_meals_page/ConsumptionOverview.dart';
 import 'package:flutter/material.dart';
 import 'package:HostelMess/services/api_service.dart';
 import 'package:HostelMess/services/localServices.dart';
@@ -161,36 +162,77 @@ class _MyVotesPageState extends State<MyVotesPage> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _statItem("TOTAL", "$totalMeals", Colors.white),
+          _statItem("TOTAL", "$totalMeals", Colors.white, () {
+            print("Click Toral ");
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) =>
+                    const ConsumptionOverviewPage(title: "TOTAL MEALS PAGE", Type: 'total',),
+              ),
+            );
+          }),
           Container(width: 1, height: 40, color: Colors.white24),
-          _statItem("USED", "$consumedMeals", Colors.white),
+          _statItem("USED", "$consumedMeals", Colors.white, () {
+            print("Click the call back Used");
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) =>
+                    const ConsumptionOverviewPage(title: "USED MEALS PAGE", Type: 'used',),
+              ),
+            );
+          }),
           Container(width: 1, height: 40, color: Colors.white24),
-          _statItem("LEFT", "$remainingMeals", Colors.orangeAccent),
+          _statItem("LEFT", "$remainingMeals", Colors.orangeAccent, () {
+            print("Click the call back Left");
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) =>
+                    const ConsumptionOverviewPage(title: "TOTAL MEALS LEFT", Type: 'left',),
+              ),
+            );
+          }),
         ],
       ),
     );
   }
 
-  Widget _statItem(String label, String value, Color color) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 26,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
+  Widget _statItem(
+    String label,
+    String value,
+    Color color,
+    VoidCallback onTap,
+  ) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+            const SizedBox(height: 4), // Small spacing
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: color.withOpacity(0.8),
+              ),
+            ),
+          ],
         ),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.w600,
-            color: color.withOpacity(0.8),
-          ),
-        ),
-      ],
+      ),
     );
   }
 

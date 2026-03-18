@@ -52,11 +52,11 @@ class StudentHistoryView extends StatelessWidget {
             final data = snapshot.data as Map<String, dynamic>;
             List<dynamic> fullHistory = data['history'] ?? [];
             
-            // ✅ Only include items where student actually voted
+            //  Only include items where student actually voted
             list = fullHistory.where((item) => item['voted'] == true).toList();
           }
 
-          // ✅ NEW FILTER LOGIC:
+          //  NEW FILTER LOGIC:
           // 1. If 'Served', show only served meals.
           // 2. If 'Guests', show only guest meals.
           // 3. Otherwise (Votes), show all voted meals.

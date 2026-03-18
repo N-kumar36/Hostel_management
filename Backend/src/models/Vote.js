@@ -7,7 +7,7 @@ const voteSchema = new mongoose.Schema({
   timeSlot: { type: String, enum: ["morning", "night"], required: true },
   mealType: { type: String, required: true }, 
   
-  // 🔥 Guest Specific Fields
+  //  Guest Specific Fields
   isGuest: { type: Boolean, default: false },
   // guestName stores "Guest 1 (Nitya)", "Guest 2 (Nitya)", etc.
   guestName: { type: String, default: null }, 
