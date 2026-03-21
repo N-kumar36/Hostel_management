@@ -2,7 +2,7 @@ import GuestMeal from "../models/guestMeal.model.js";
 import Fine from "../models/fine.model.js";
 import Meal from "../models/Meal.js";
 import Vote from "../models/Vote.js";
-import MealPrice from "../models/mealPrice.model.js"; // Adjust path as needed
+
 
 
 //  Student creates a guest meal request
@@ -60,7 +60,7 @@ export const getMyGuestMealRequests = async (req, res) => {
 };
 
 
-// ✅ Student cancels/rejects their own pending request
+//  Student cancels/rejects their own pending request
 export const cancelGuestMealRequest = async (req, res) => {
   try {
     const requestId = req.params.id;

@@ -1,7 +1,18 @@
 import { Router } from "express";
 import { protect } from "../middleware/authMiddleware.js";
-import { assignManager, getCurrentManager, pendingStudent, pendingApprove, pendingReject, getAllHostelStudent, getStudentSummary } from "../controllers/manager.controller.js";
+import {
+    assignManager,
+    getCurrentManager,
+    pendingStudent,
+    pendingApprove,
+    pendingReject,
+    getAllHostelStudent,
+    getStudentSummary,
+    saveSattingData,
+    getSattingData
+} from "../controllers/manager.controller.js";
 import { upsertWeeklyRoutine, getWeeklyRoutine } from "../controllers/WeeklyRoutine.controller.js";
+
 const router = Router();
 
 // For testing purposes, we'll just use protect. 
@@ -17,6 +28,12 @@ router.patch("/reject/:id", protect, pendingReject);
 router.get("/get-student", protect, getAllHostelStudent);
 router.post("/create-routine", protect, upsertWeeklyRoutine);
 router.get("/get-routine", protect, getWeeklyRoutine);
-router.get("/Status/:studentId", protect, getStudentSummary );
+router.get("/Status/:studentId", protect, getStudentSummary);
+
+
+router.route("/sattingData")
+    .get(protect, getSattingData)
+    .post(protect, saveSattingData);
+
 
 export default router;

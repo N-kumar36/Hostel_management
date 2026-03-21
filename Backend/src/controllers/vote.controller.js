@@ -1,6 +1,11 @@
 import mongoose from "mongoose";
 import Vote from "../models/Vote.js";
 import Meal from "../models/Meal.js";
+import StudentSubscription from "../models/StudentSubscription.js";
+import Fine from "../models/fine.model.js";
+import FinePrice from "../models/FinePrice.js";
+import User from "../models/User.js";
+import moment from "moment";
 
 
 
@@ -116,48 +121,47 @@ export const checkVoteStatus = async (req, res) => {
 
 
 // get history
-
-
-
 export const getVoteHistory = async (req, res) => {
   try {
-    const studentId = req.user.id; // From authMiddleware
-    const hostelId = req.user.hostelId; // From authMiddleware
-    console.log("Get History", studentId);
+    const studentId = req.user.id; 
+    const hostelId = req.user.hostelId; 
+
+    const month = req.query.month; 
+    const year = req.query.year;   
+
+    let matchStage = { 
+      hostelId: new mongoose.Types.ObjectId(hostelId) 
+    };
+
+    if (month && year) {
+      const formattedMonth = month.padStart(2, '0'); 
+      const datePattern = new RegExp(`/${formattedMonth}/${year}$`); 
+      matchStage.date = { $regex: datePattern };
+    }
 
     const history = await Meal.aggregate([
-      // 1. Filter by the user's specific hostel
-      { 
-        $match: { 
-          hostelId: new mongoose.Types.ObjectId(hostelId) 
-        } 
-      },
+      { $match: matchStage },
 
-      // 2. Project morning and night into an array so we can process each slot individually
       {
         $project: {
           date: 1,
           slots: [
             {
               timeSlot: "morning",
-              manu: "$morning.manu",
-              lockTime: "$morning.lockTime",
+              menuItem: "$morning.manu",
               isCancelled: "$morning.isCancelled"
             },
             {
               timeSlot: "night",
-              manu: "$night.manu",
-              lockTime: "$night.lockTime",
+              menuItem: "$night.manu",
               isCancelled: "$night.isCancelled"
             }
           ]
         }
       },
 
-      // 3. Flatten the array so each meal time becomes its own document
       { $unwind: "$slots" },
 
-      // 4. Join with the 'votes' collection
       {
         $lookup: {
           from: "votes",
@@ -179,21 +183,37 @@ export const getVoteHistory = async (req, res) => {
         }
       },
 
-      // 5. Final data structure for the Flutter app
+      // Stage 5: Fixed Projection for Guests
       {
         $project: {
           _id: 1,
-          date: 1,
+          date: 1, 
           timeSlot: "$slots.timeSlot",
-          menuItem: "$slots.manu",
+          menuItem: "$slots.menuItem",
           isCancelled: "$slots.isCancelled",
-          voted: { $gt: [{ $size: "$voteData" }, 0] }, // true if user voted
+          
+          //  FIX 1: Returns TRUE if ANY vote in the array has isGuest: true
+          hasGuest: { 
+            $in: [true, { $ifNull: ["$voteData.isGuest", []] }] 
+          },
+
+          //  FIX 2: Accurately counts HOW MANY guest votes exist for this meal
+          guestCount: {
+            $size: {
+              $filter: {
+                input: { $ifNull: ["$voteData", []] },
+                as: "v",
+                cond: { $eq: ["$$v.isGuest", true] }
+              }
+            }
+          },
+
+          voted: { $gt: [{ $size: "$voteData" }, 0] },
           isServed: { $ifNull: [{ $arrayElemAt: ["$voteData.isServed", 0] }, false] },
           votedAt: { $arrayElemAt: ["$voteData.votedAt", 0] }
         }
       },
 
-      // 6. Sort by date (descending) and timeSlot
       { $sort: { date: -1, timeSlot: 1 } }
     ]);
 
@@ -201,16 +221,15 @@ export const getVoteHistory = async (req, res) => {
       success: true,
       history: history
     });
+
   } catch (error) {
     console.error("History Error:", error);
     res.status(500).json({
       success: false,
-      message: "Failed to fetch meal history: " + error.message
+      message: "Server Error: " + error.message
     });
   }
 };
-
-
 
 
 
@@ -288,24 +307,88 @@ export const getVotesByDateAndSlot = async (req, res) => {
 // Controller: toggleServeStatus
 export const toggleServeStatus = async (req, res) => {
   try {
-    const { voteId } = req.body; // The ID of the specific vote document
-    console.log("voteId", voteId);
+    const { voteId } = req.body;
 
-    const vote = await Vote.findById(voteId);
+    // 1. Find Vote and Meal data
+    const vote = await Vote.findById(voteId).populate("mealId");
     if (!vote) return res.status(404).json({ success: false, message: "Vote not found" });
 
-    // Toggle the served status
-    vote.isServed = !vote.isServed;
-    vote.servedAt = vote.isServed ? new Date() : null;
-    
+    const mealDate = moment(vote.mealId.date, "DD/MM/YYYY");
+    const subscriptionMonth = mealDate.format("MMMM YYYY");
+    const mealType = vote.mealType.toLowerCase();
+
+    // 2. Find Subscription
+    const subscription = await StudentSubscription.findOne({
+      studentId: vote.userId,
+      month: subscriptionMonth,
+      status: "active"
+    });
+
+    if (!subscription && !vote.isGuest) {
+      return res.status(400).json({ success: false, message: "No active plan for this month" });
+    }
+
+    const isNowServed = !vote.isServed;
+
+    // --- AUTO FINE LOGIC ---
+    if (isNowServed && !vote.isGuest) {
+      const currentUsage = subscription.usage[mealType] || 0;
+      const maxAllowed = subscription.maxLimits[mealType] || 0;
+
+      // Check if this meal is EXTRA
+      if (currentUsage >= maxAllowed) {
+        // Fetch specific fine prices for this hostel
+        const priceList = await FinePrice.findOne({ hostelId: vote.hostelId });
+        const fineAmount = priceList ? priceList.prices[mealType] : 50; // Fallback to 50 if no price set
+
+        // Find manager ID to assign the fine
+        const manager = await User.findOne({ hostelId: vote.hostelId, role: "manager" });
+
+        // Create the Automatic Fine
+        await Fine.create({
+          studentId: vote.userId,
+          managerId: manager ? manager._id : vote.userId, // Fallback safety
+          hostelId: vote.hostelId,
+          title: `Extra Meal Charge - ${vote.mealType.toUpperCase()}`,
+          amount: fineAmount,
+          description: `Automatically generated: Limit for ${mealType} was ${maxAllowed}. Student is consuming an extra plate.`,
+          status: "pending",
+          date: new Date()
+        });
+      }
+    }
+
+    // 3. Update Subscription Usage
+    if (!vote.isGuest && subscription) {
+      const incValue = isNowServed ? 1 : -1;
+      const updateKey = `usage.${mealType}`;
+
+      if (!isNowServed && subscription.usage[mealType] <= 0) {
+        // Safety: Don't decrement below 0
+      } else {
+        await StudentSubscription.findByIdAndUpdate(subscription._id, {
+          $inc: { [updateKey]: incValue }
+        });
+      }
+    }
+
+    // 4. Update Vote Status
+    vote.isServed = isNowServed;
+    vote.servedAt = isNowServed ? new Date() : null;
     await vote.save();
 
-    res.json({ 
-      success: true, 
-      message: vote.isServed ? "Meal marked as served" : "Service undone",
-      isServed: vote.isServed 
+    res.json({
+      success: true,
+      message: vote.isServed 
+        ? (subscription.usage[mealType] >= subscription.maxLimits[mealType] 
+            ? `Extra ${vote.mealType} served. Fine generated!` 
+            : `Marked ${vote.mealType} as served`)
+        : "Service undone",
+      isServed: vote.isServed
     });
+
   } catch (error) {
+    console.error("Toggle Serve Error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

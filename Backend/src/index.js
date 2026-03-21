@@ -13,7 +13,10 @@ import ComplainRoute from "./routes/complain.route.js";
 import FineRoute from "./routes/fine.routes.js";
 import guestMealRoutes from "./routes/guestMeal.routes.js";
 import userRouter from "./routes/user.route.js";
-import upiRouter from "./routes/upi.route.js"
+import upiRoute from "./routes/upi.route.js"
+import MealPlanRouter from "./routes/mealPlan.route.js";
+
+
 
 dotenv.config();
 const app = express();
@@ -35,7 +38,9 @@ app.use("/api/vote", voteRoute);
 app.use("/api/complains", ComplainRoute);
 app.use("/api/fines", FineRoute);
 app.use("/api/guest-meals", guestMealRoutes);
-app.use("/api/upi", upiRouter)
+app.use("/api/upi", upiRoute);
+app.use("/api/meal-plan", MealPlanRouter);
+
 
 
 // 404 Handler

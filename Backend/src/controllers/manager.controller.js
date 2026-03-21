@@ -3,6 +3,10 @@ import ManagerAssignment from "../models/ManagerAssignment.js";
 import User from "../models/User.js";
 import Fine from '../models/fine.model.js';
 import Vote from '../models/Vote.js';
+import FinePrice from '../models/FinePrice.js'
+import UpiDetail from '../models/UpiDetail.js'
+import MealPlan from '../models/MealPlan.js'
+
 
 export const assignManager = async (req, res) => {
   try {
@@ -138,26 +142,26 @@ export const pendingReject = async (req, res) => {
 
     // 1. Find the student first
     const student = await User.findById(id);
-    
+
     if (!student) {
       return res.status(404).json({ message: "Student not found" });
     }
 
     // 2. Security Check: Ensure manager only deletes students from their own hostel
     if (student.hostelId.toString() !== req.user.hostelId.toString()) {
-      return res.status(403).json({ 
-        message: "Unauthorized: This student belongs to another Hostel" 
+      return res.status(403).json({
+        message: "Unauthorized: This student belongs to another Hostel"
       });
     }
 
     // 3. Delete the student (Wait for the database to finish)
-    await User.findByIdAndDelete(id); 
+    await User.findByIdAndDelete(id);
 
     res.status(200).json({
       success: true, // Fixed typo
       message: "Student registration request rejected and deleted",
     });
-    
+
   } catch (error) {
     console.error("Delete Error:", error);
     res.status(500).json({ message: "Server error during Student delete" });
@@ -171,15 +175,15 @@ export const getAllHostelStudent = async (req, res) => {
     }).select("-password");
 
     if (!student || student.length === 0) {
-      return res.status(404).json({message: "Hostel Student not found"}); 
+      return res.status(404).json({ message: "Hostel Student not found" });
     }
 
     res.status(200).json(student);
-    
+
   } catch (error) {
     console.error("Fail to fetch Hostel student :", error);
-    res.status(500).json({success: false, message: "fail to Fetch hostel student", error});
-    
+    res.status(500).json({ success: false, message: "fail to Fetch hostel student", error });
+
   }
 }
 
@@ -189,36 +193,36 @@ export const getStudentSummary = async (req, res) => {
   try {
     // 1. Total Votes: Count every meal record (Personal + Guest)
     // In your schema, the existence of a document MEANS they voted.
-    const totalVotes = await Vote.countDocuments({ 
-      userId: studentId 
+    const totalVotes = await Vote.countDocuments({
+      userId: studentId
     });
 
     // 2. Total Served: Count meals actually consumed (Personal + Guest)
-    const totalServed = await Vote.countDocuments({ 
-      userId: studentId, 
-      isServed: true 
+    const totalServed = await Vote.countDocuments({
+      userId: studentId,
+      isServed: true
     });
 
     // 3. Breakdown for UI
     // Student's own meals (isGuest is false)
-    const studentOwnVotes = await Vote.countDocuments({ 
-      userId: studentId, 
+    const studentOwnVotes = await Vote.countDocuments({
+      userId: studentId,
       isGuest: false
     });
-    
+
     // Guest meals only
-    const totalGuestVotes = await Vote.countDocuments({ 
-      userId: studentId, 
+    const totalGuestVotes = await Vote.countDocuments({
+      userId: studentId,
       isGuest: true
     });
 
     // 4. Fine Calculations (Using studentId to match your Fine model)
-    const fines = await Fine.find({ studentId }); 
-    
+    const fines = await Fine.find({ studentId });
+
     const pendingFines = fines
       .filter(f => f.status === 'pending')
       .reduce((sum, f) => sum + f.amount, 0);
-      
+
     const paidFines = fines
       .filter(f => f.status === 'success')
       .reduce((sum, f) => sum + f.amount, 0);
@@ -226,13 +230,66 @@ export const getStudentSummary = async (req, res) => {
     res.json({
       success: true,
       totalVotes,       // Sum of studentOwnVotes + totalGuestVotes
-      totalServed,      
-      studentOwnVotes,  
-      totalGuestVotes,  
+      totalServed,
+      studentOwnVotes,
+      totalGuestVotes,
       pendingFines,
       paidFines
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+
+
+// @desc    Save all mess settings (Prices, Plans, UPI)
+// @route   POST /api/settings/sattingData
+export const saveSattingData = async (req, res) => {
+  try {
+    const { finePrices, plans, upi } = req.body;
+    const hostelId = req.user.hostelId;
+    const managerId = req.user._id;
+
+    const priceUpdate = FinePrice.findOneAndUpdate({ hostelId }, { prices: finePrices }, { upsert: true });
+    const upiUpdate = UpiDetail.findOneAndUpdate({ hostelId }, { managerId, upiId: upi.upiId, merchantName: upi.merchantName }, { upsert: true });
+
+    // USE LOWERCASE TO MATCH ENUM IN SCHEMA
+    const basicPlanUpdate = MealPlan.findOneAndUpdate(
+      { hostelId, planType: "30 meals" },
+      { monthlyPrice: plans.basic.price, limits: plans.basic.limits },
+      { upsert: true }
+    );
+
+    const premiumPlanUpdate = MealPlan.findOneAndUpdate(
+      { hostelId, planType: "60 meals" },
+      { monthlyPrice: plans.premium.price, limits: plans.premium.limits },
+      { upsert: true }
+    );
+
+    await Promise.all([priceUpdate, upiUpdate, basicPlanUpdate, premiumPlanUpdate]);
+    res.status(200).json({ success: true, message: "Settings saved" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+// @desc    Get all mess settings
+// @route   GET /api/settings/sattingData
+export const getSattingData = async (req, res) => {
+  try {
+    const hostelId = req.user.hostelId;
+
+    const [finePrices, upi, plans] = await Promise.all([
+      FinePrice.findOne({ hostelId }),
+      UpiDetail.findOne({ hostelId }),
+      MealPlan.find({ hostelId })
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: { finePrices, upi, plans }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
 };
