@@ -33,6 +33,6 @@ const studentSubscriptionSchema = new mongoose.Schema({
 });
 
 // Ensure a student only has one subscription per month
-studentSubscriptionSchema.index({ studentId: 1, month: 1 }, { unique: true });
+// studentSubscriptionSchema.index({ studentId: 1, month: 1 }, { unique: true });
 
 export default mongoose.model("StudentSubscription", studentSubscriptionSchema);

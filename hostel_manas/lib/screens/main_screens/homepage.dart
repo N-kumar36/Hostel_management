@@ -54,33 +54,60 @@ class _HomepageState extends State<Homepage> {
   }
 
   Future<void> _updateStats() async {
-    final stats = await L_S.fetchAndCalculateMealStats();
-
-    double totalPending = 0.0;
-    bool processingFound = false;
     try {
+      final statsResponse = await api.getVoteSummary();
+
+      int totalLimit = 0;
+      int totalConsumed = 0;
+
+      // 1. Parse Subscription Data from the new JSON structure
+      if (statsResponse['success'] == true &&
+          (statsResponse['data'] as List).isNotEmpty) {
+        final subData =
+            statsResponse['data'][0]; // Get the first active subscription
+
+        final Map<String, dynamic> maxLimits = subData['maxLimits'] ?? {};
+        final Map<String, dynamic> usage = subData['usage'] ?? {};
+
+        // Sum all limits (veg + chicken + fish etc)
+        maxLimits.forEach((key, value) {
+          totalLimit += (value as num).toInt();
+        });
+
+        // Sum all consumed plates
+        usage.forEach((key, value) {
+          totalConsumed += (value as num).toInt();
+        });
+      }
+
+      // 2. Parse Financials/Fines
+      double totalPending = 0.0;
+      bool processingFound = false;
+
       final fines = await api.getMyFines();
-      for (var fine in fines) {
-        String status = fine['status'].toString().toLowerCase();
-        if (status == 'pending') {
-          totalPending += double.tryParse(fine['amount'].toString()) ?? 0.0;
-        } else if (status == 'processing') {
-          processingFound =
-              true; // Still show section if verification is pending
+      if (fines != null) {
+        for (var fine in fines) {
+          String status = fine['status'].toString().toLowerCase();
+          if (status == 'pending') {
+            totalPending += double.tryParse(fine['amount'].toString()) ?? 0.0;
+          } else if (status == 'processing') {
+            processingFound = true;
+          }
         }
       }
-    } catch (e) {
-      debugPrint("Error fetching fines: $e");
-    }
 
-    if (mounted) {
-      setState(() {
-        totalMealsThisMonth = stats['total'] ?? 0;
-        mealsConsumed = stats['consumed'] ?? 0;
-        pendingDuesTotal = totalPending;
-        hasProcessingFines = processingFound;
-        isStatsLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          totalMealsThisMonth = totalLimit;
+          mealsConsumed = totalConsumed;
+          pendingDuesTotal = totalPending;
+          hasProcessingFines = processingFound;
+          isStatsLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint("Dashboard Stats Error: $e");
+      if (mounted) setState(() => isStatsLoading = false);
     }
   }
 

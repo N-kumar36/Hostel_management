@@ -1,7 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart'; // Add this to pubspec.yaml
 
 class HostelRulesWidget extends StatelessWidget {
   const HostelRulesWidget({super.key});
+
+  // Helper function to launch URLs/Portfolio
+  Future<void> _launchURL(String url) async {
+    final Uri uri = Uri.parse(url);
+    if (!await launchUrl(uri)) {
+      throw Exception('Could not launch $url');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -72,6 +81,78 @@ class HostelRulesWidget extends StatelessWidget {
             ],
           ),
         ),
+        const SizedBox(height: 24),
+
+        // --- NEW: Technical Support Section ---
+        const Text("Technical Support", 
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.deepPurple.shade600, Colors.deepPurple.shade800],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(15),
+            boxShadow: [BoxShadow(color: Colors.deepPurple.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4))],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "Need any technical issue support? Contact developer:",
+                style: TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  const CircleAvatar(
+                    backgroundColor: Colors.white24,
+                    child: Icon(Icons.code, color: Colors.white),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          "Nitya Kumar Barman",
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                        ),
+                        Text(
+                          "+91 9064394702",
+                          style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => _launchURL("tel:9064394702"),
+                    icon: const Icon(Icons.phone_in_talk, color: Colors.white),
+                  ),
+                ],
+              ),
+              const Divider(color: Colors.white24, height: 20),
+              InkWell(
+                onTap: () => _launchURL("http://nityakumar.netlify.app/"),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: const [
+                    Icon(Icons.language, color: Colors.white, size: 16),
+                    SizedBox(width: 8),
+                    Text(
+                      "View Portfolio",
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, decoration: TextDecoration.underline),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
       ],
     );
   }
@@ -124,7 +205,7 @@ class HostelRulesWidget extends StatelessWidget {
             ],
           ),
           IconButton(
-            onPressed: () {}, // Implement call logic here
+            onPressed: () => launchUrl(Uri.parse("tel:$phone")),
             icon: const Icon(Icons.call, color: Colors.green, size: 20),
           ),
         ],

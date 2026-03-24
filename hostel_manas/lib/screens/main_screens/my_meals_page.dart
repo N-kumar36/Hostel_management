@@ -1,4 +1,3 @@
-import 'package:HostelMess/screens/main_screens/my_meals_page/ConsumptionOverview.dart';
 import 'package:flutter/material.dart';
 import 'package:HostelMess/services/api_service.dart';
 import 'package:HostelMess/services/localServices.dart';
@@ -16,33 +15,50 @@ class _MyVotesPageState extends State<MyVotesPage> {
   final api = ApiService();
   final L_S = LocalService();
 
-  List<dynamic> guestRequests = []; // Add this variable to your State class
+  // --- State Variables ---
+  List<dynamic> guestRequests = [];
+  List<dynamic> availablePackages = [];
+  Map<String, dynamic>? activeSubscription;
+  String? activePackageId;
 
-  int totalMeals = 0;
-  int consumedMeals = 0;
-  int remainingMeals = 0;
+  // --- Consumption Tracking ---
+  int chickenUsed = 0, chickenMax = 0;
+  int fishUsed = 0, fishMax = 0;
+  int paneerUsed = 0, paneerMax = 0;
+  int muttonUsed = 0, muttonMax = 0;
+  int eggUsed = 0, eggMax = 0;
+  int vegUsed = 0, vegMax = 0;
+  int totalUsed = 0;
+  int totalLimit = 0;
+
   double pendingDues = 0.0;
   bool isLoading = true;
+  bool isPackageUpdating = false;
   List<String> availableDates = [];
 
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _loadAllData();
   }
 
-  Future<void> _loadData() async {
-    try {
-      final stats = await L_S.fetchAndCalculateMealStats();
-      final fines = await api.getMyFines();
-      final requests = await api.getMyGuestMealRequests();
+  /// Master Data Loader: Fetches all data and handles multiple subscription logic
+  Future<void> _loadAllData() async {
+    if (!mounted) return;
+    setState(() => isLoading = true);
 
-      final List<String> dates = [
-        DateFormat('yyyy-MM-dd').format(DateTime.now()),
-        DateFormat(
-          'yyyy-MM-dd',
-        ).format(DateTime.now().add(const Duration(days: 1))),
-      ];
+    try {
+      final results = await Future.wait([
+        api.getVoteSummary(), // StudentSubscription
+        api.getMyFines(), // Fines/Dues
+        api.getMyGuestMealRequests(),
+        api.getmealPackages(), // Global Plans
+      ]);
+
+      final subResponse = results[0] as Map<String, dynamic>;
+      final fines = results[1] as List<dynamic>?;
+      final requests = results[2] as List<dynamic>;
+      final packageResponse = results[3] as Map<String, dynamic>;
 
       double dues = 0.0;
       if (fines != null) {
@@ -55,18 +71,93 @@ class _MyVotesPageState extends State<MyVotesPage> {
 
       if (mounted) {
         setState(() {
-          totalMeals = stats['total'] ?? 0;
-          consumedMeals = stats['consumed'] ?? 0;
-          remainingMeals = totalMeals - consumedMeals;
+          // --- FIX: Logic to handle multiple subscriptions (Completed vs Active) ---
+          if (subResponse['success'] == true &&
+              (subResponse['data'] as List).isNotEmpty) {
+            final List<dynamic> allSubs = subResponse['data'];
+
+            // Preference: 1. Active/Pending, 2. Else Completed
+            activeSubscription = allSubs.firstWhere(
+              (s) => s['status'] != "completed",
+              orElse: () => allSubs[0],
+            );
+
+            activePackageId = activeSubscription!['mealsPlanId'];
+
+            final usage = activeSubscription!['usage'] ?? {};
+            final limits = activeSubscription!['maxLimits'] ?? {};
+
+            chickenUsed = (usage['chicken'] ?? 0).toInt();
+            chickenMax = (limits['chicken'] ?? 0).toInt();
+            fishUsed = (usage['fish'] ?? 0).toInt();
+            fishMax = (limits['fish'] ?? 0).toInt();
+            paneerUsed = (usage['paneer'] ?? 0).toInt();
+            paneerMax = (limits['paneer'] ?? 0).toInt();
+            muttonUsed = (usage['mutton'] ?? 0).toInt();
+            muttonMax = (limits['mutton'] ?? 0).toInt();
+            eggUsed = (usage['egg'] ?? 0).toInt();
+            eggMax = (limits['egg'] ?? 0).toInt();
+            vegUsed = (usage['veg'] ?? 0).toInt();
+            vegMax = (limits['veg'] ?? 0).toInt();
+
+            totalUsed =
+                chickenUsed +
+                fishUsed +
+                paneerUsed +
+                muttonUsed +
+                eggUsed +
+                vegUsed;
+            totalLimit =
+                chickenMax + fishMax + paneerMax + muttonMax + eggMax + vegMax;
+          } else {
+            activeSubscription = null;
+            activePackageId = null;
+          }
+
+          availablePackages = packageResponse['data'] ?? [];
           pendingDues = dues;
-          availableDates = dates;
           guestRequests = requests;
+          availableDates = [
+            DateFormat('yyyy-MM-dd').format(DateTime.now()),
+            DateFormat(
+              'yyyy-MM-dd',
+            ).format(DateTime.now().add(const Duration(days: 1))),
+          ];
           isLoading = false;
         });
       }
     } catch (e) {
-      debugPrint("Error loading activity data: $e");
+      debugPrint("Master Load Error: $e");
       if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  void _handlePackageSelection(String packageId) async {
+    setState(() => isPackageUpdating = true);
+    try {
+      final result = await api.selectPackage(packageId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['message'] ?? "Processed!"),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        _loadAllData();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceAll("Exception: ", "")),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => isPackageUpdating = false);
     }
   }
 
@@ -75,7 +166,10 @@ class _MyVotesPageState extends State<MyVotesPage> {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text("Meal & Activity"),
+        title: const Text(
+          "Meal & Activity",
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         centerTitle: true,
         backgroundColor: Colors.deepPurple,
         foregroundColor: Colors.white,
@@ -86,8 +180,7 @@ class _MyVotesPageState extends State<MyVotesPage> {
               child: CircularProgressIndicator(color: Colors.deepPurple),
             )
           : RefreshIndicator(
-              onRefresh: _loadData,
-              color: Colors.deepPurple,
+              onRefresh: _loadAllData,
               child: ListView(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 20,
@@ -96,7 +189,12 @@ class _MyVotesPageState extends State<MyVotesPage> {
                 children: [
                   _sectionHeader("Consumption Overview"),
                   const SizedBox(height: 12),
-                  _buildMealStats(),
+                  _buildMainStatsCard(),
+                  const SizedBox(height: 12),
+                  _buildDetailedUsageGrid(),
+
+                  const SizedBox(height: 24),
+                  _buildMealSubscriptionSection(),
 
                   const SizedBox(height: 24),
                   _sectionHeader("Quick Actions"),
@@ -110,124 +208,234 @@ class _MyVotesPageState extends State<MyVotesPage> {
                   const SizedBox(height: 12),
                   _buildPaymentDashboard(),
 
-                  const SizedBox(height: 12),
-
-                  // Inside your ListView children:
                   const SizedBox(height: 24),
                   _sectionHeader("Guest Meal Status"),
                   const SizedBox(height: 12),
                   guestRequests.isEmpty
                       ? _buildEmptyStatus()
-                      : Column(
-                          children: guestRequests
-                              .map((req) => _buildStatusCard(req))
-                              .toList(),
-                        ),
+                      : _buildGuestRequestsList(),
+                  const SizedBox(height: 40),
                 ],
               ),
             ),
     );
   }
 
-  Widget _sectionHeader(String title) {
-    return Text(
-      title,
-      style: const TextStyle(
-        fontSize: 14,
-        fontWeight: FontWeight.bold,
-        color: Colors.black54,
-        letterSpacing: 0.5,
+  // --- UI COMPONENTS ---
+
+  Widget _buildMealSubscriptionSection() {
+    if (activeSubscription == null ||
+        activeSubscription!['status'] == "completed") {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionHeader("Select Meal Package"),
+          const SizedBox(height: 12),
+          _buildMealPackageList(),
+        ],
+      );
+    }
+
+    final String planType = activeSubscription!['planType'] ?? "";
+
+    if (planType == "60 meals") {
+      return const SizedBox.shrink();
+    } else if (planType == "30 meals") {
+      return _buildUpgradeBanner();
+    }
+
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildUpgradeBanner() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Colors.orange, Colors.deepOrange],
+        ),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.bolt, color: Colors.white, size: 35),
+          const SizedBox(width: 15),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                Text(
+                  "UPGRADE AVAILABLE",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  "Unlock 60 meals for ₹500 more",
+                  style: TextStyle(color: Colors.white70, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.deepOrange,
+            ),
+            onPressed: isPackageUpdating
+                ? null
+                : () {
+                    final sixtyDay = availablePackages.firstWhere(
+                      (p) => p['planType'] == "60 meals",
+                      orElse: () => null,
+                    );
+                    if (sixtyDay != null)
+                      _handlePackageSelection(sixtyDay['_id']);
+                  },
+            child: const Text("PAY ₹500"),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildMealStats() {
+  Widget _buildMainStatsCard() {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [Colors.deepPurple.shade400, Colors.deepPurple.shade700],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+          colors: [Colors.deepPurple.shade400, Colors.deepPurple.shade800],
         ),
         borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.deepPurple.withOpacity(0.3),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
-          ),
-        ],
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _statItem("TOTAL", "$totalMeals", Colors.white, () {
-            print("Click Toral ");
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) =>
-                    const ConsumptionOverviewPage(title: "TOTAL MEALS PAGE", Type: 'total',),
-              ),
-            );
-          }),
-          Container(width: 1, height: 40, color: Colors.white24),
-          _statItem("USED", "$consumedMeals", Colors.white, () {
-            print("Click the call back Used");
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) =>
-                    const ConsumptionOverviewPage(title: "USED MEALS PAGE", Type: 'used',),
-              ),
-            );
-          }),
-          Container(width: 1, height: 40, color: Colors.white24),
-          _statItem("LEFT", "$remainingMeals", Colors.orangeAccent, () {
-            print("Click the call back Left");
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) =>
-                    const ConsumptionOverviewPage(title: "TOTAL MEALS LEFT", Type: 'left',),
-              ),
-            );
-          }),
+          _statItemHeader("TOTAL", "$totalLimit", Colors.white),
+          _statItemHeader("USED", "$totalUsed", Colors.greenAccent),
+          _statItemHeader(
+            "LEFT",
+            "${totalLimit - totalUsed}",
+            Colors.orangeAccent,
+          ),
         ],
       ),
     );
   }
 
-  Widget _statItem(
-    String label,
-    String value,
-    Color color,
-    VoidCallback onTap,
-  ) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.all(8.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 26,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
+  Widget _statItemHeader(String label, String value, Color color) {
+    return Column(
+      children: [
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 9,
+            color: Colors.white60,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDetailedUsageGrid() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _gridItem("Chicken", chickenUsed, chickenMax),
+              _gridItem("Fish", fishUsed, fishMax),
+              _gridItem("Paneer", paneerUsed, paneerMax),
+            ],
+          ),
+          const Divider(height: 30),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _gridItem("Mutton", muttonUsed, muttonMax),
+              _gridItem("Egg", eggUsed, eggMax),
+              _gridItem("Veg", vegUsed, vegMax),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _gridItem(String label, int used, int max) {
+    return Column(
+      children: [
+        Text(
+          "$used / $max",
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.deepPurple,
+          ),
+        ),
+        Text(
+          label.toUpperCase(),
+          style: const TextStyle(fontSize: 9, color: Colors.grey),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMealPackageList() {
+    return Column(
+      children: availablePackages
+          .map(
+            (pkg) => _buildOptionCard(
+              id: pkg['_id'],
+              title: pkg['planType'],
+              price: pkg['monthlyPrice'],
             ),
-            const SizedBox(height: 4), // Small spacing
+          )
+          .toList(),
+    );
+  }
+
+  Widget _buildOptionCard({
+    required String id,
+    required String title,
+    required int price,
+  }) {
+    return GestureDetector(
+      onTap: isPackageUpdating ? null : () => _handlePackageSelection(id),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade300),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
             Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-                color: color.withOpacity(0.8),
+              "₹$price",
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.deepPurple,
               ),
             ),
           ],
@@ -246,126 +454,33 @@ class _MyVotesPageState extends State<MyVotesPage> {
       ),
       child: Row(
         children: [
-          CircleAvatar(
-            backgroundColor: pendingDues > 0
-                ? Colors.red.shade50
-                : Colors.green.shade50,
-            child: Icon(
-              pendingDues > 0 ? Icons.account_balance_wallet : Icons.verified,
-              color: pendingDues > 0 ? Colors.red : Colors.green,
-            ),
+          Icon(
+            pendingDues > 0 ? Icons.warning : Icons.check_circle,
+            color: pendingDues > 0 ? Colors.red : Colors.green,
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  "Pending Fines",
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.grey,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                Text(
-                  "₹${pendingDues.toInt()}",
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
+            child: Text(
+              "Dues: ₹${pendingDues.toInt()}",
+              style: const TextStyle(fontWeight: FontWeight.bold),
             ),
           ),
           TextButton(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const FinancialsPage()),
-              ).then((_) => _loadData());
-            },
-            child: const Text(
-              "HISTORY",
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Colors.deepPurple,
-              ),
-            ),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const FinancialsPage()),
+            ).then((_) => _loadAllData()),
+            child: const Text("VIEW"),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildGuestMealAction() {
-    return ElevatedButton.icon(
-      onPressed: _showGuestMealBottomSheet,
-      icon: const Icon(Icons.group_add, size: 20),
-      label: const Text(
-        "REQUEST GUEST MEAL",
-        style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1),
-      ),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: Colors.deepPurple,
-        foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        elevation: 2,
-      ),
-    );
-  }
-
-  Widget _buildBlockedGuestAction() {
-    return InkWell(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const FinancialsPage()),
-        ).then((_) => _loadData());
-      },
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.red.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.red.withOpacity(0.2)),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.lock_clock_outlined, color: Colors.red),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "Guest Request Locked (₹${pendingDues.toInt()})",
-                    style: const TextStyle(
-                      color: Colors.red,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const Text(
-                    "Clear pending dues to enable guest requests.",
-                    style: TextStyle(color: Colors.redAccent, fontSize: 11),
-                  ),
-                ],
-              ),
-            ),
-            const Icon(Icons.chevron_right, color: Colors.red),
-          ],
-        ),
-      ),
-    );
-  }
+  // --- GUEST MEAL BOTTOM SHEET ---
 
   void _showGuestMealBottomSheet() {
-    String selectedDate = availableDates.isNotEmpty
-        ? availableDates.first
-        : DateFormat('yyyy-MM-dd').format(DateTime.now());
+    String selectedDate = availableDates.first;
     String selectedTime = "Night";
     int guestCount = 1;
 
@@ -391,16 +506,7 @@ class _MyVotesPageState extends State<MyVotesPage> {
                 "Request Guest Meal",
                 style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
               ),
-              const SizedBox(height: 8),
-              const Text(
-                "Select details to notify the mess manager.",
-                style: TextStyle(color: Colors.grey, fontSize: 13),
-              ),
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                child: Divider(),
-              ),
-
+              const Divider(height: 32),
               const Text(
                 "SELECT DATE",
                 style: TextStyle(
@@ -411,17 +517,12 @@ class _MyVotesPageState extends State<MyVotesPage> {
               ),
               DropdownButton<String>(
                 isExpanded: true,
-                underline: Container(
-                  height: 1,
-                  color: Colors.deepPurple.shade100,
-                ),
                 value: selectedDate,
                 items: availableDates
                     .map((d) => DropdownMenuItem(value: d, child: Text(d)))
                     .toList(),
-                onChanged: (val) => setModalState(() => selectedDate = val!),
+                onChanged: (v) => setModalState(() => selectedDate = v!),
               ),
-
               const SizedBox(height: 24),
               const Text(
                 "MEAL TIME",
@@ -431,23 +532,23 @@ class _MyVotesPageState extends State<MyVotesPage> {
                   color: Colors.deepPurple,
                 ),
               ),
-              const SizedBox(height: 8),
               Row(
                 children: [
-                  _choiceChip(
-                    "Morning",
-                    selectedTime == "Morning",
-                    (s) => setModalState(() => selectedTime = "Morning"),
+                  ChoiceChip(
+                    label: const Text("Morning"),
+                    selected: selectedTime == "Morning",
+                    onSelected: (_) =>
+                        setModalState(() => selectedTime = "Morning"),
                   ),
                   const SizedBox(width: 12),
-                  _choiceChip(
-                    "Night",
-                    selectedTime == "Night",
-                    (s) => setModalState(() => selectedTime = "Night"),
+                  ChoiceChip(
+                    label: const Text("Night"),
+                    selected: selectedTime == "Night",
+                    onSelected: (_) =>
+                        setModalState(() => selectedTime = "Night"),
                   ),
                 ],
               ),
-
               const SizedBox(height: 24),
               const Text(
                 "GUEST COUNT",
@@ -465,14 +566,11 @@ class _MyVotesPageState extends State<MyVotesPage> {
                         : null,
                     icon: const Icon(Icons.remove_circle_outline),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Text(
-                      "$guestCount",
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
+                  Text(
+                    "$guestCount",
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                   IconButton(
@@ -481,7 +579,6 @@ class _MyVotesPageState extends State<MyVotesPage> {
                   ),
                 ],
               ),
-
               const SizedBox(height: 32),
               SizedBox(
                 width: double.infinity,
@@ -490,42 +587,27 @@ class _MyVotesPageState extends State<MyVotesPage> {
                     backgroundColor: Colors.deepPurple,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.all(18),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
                   ),
                   onPressed: () async {
-                    // Show a loading indicator if needed
-                    final result = await api.requestGuestMeal(
+                    final res = await api.requestGuestMeal(
                       guestCount: guestCount,
                       mealDate: selectedDate,
                       mealTime: selectedTime,
                     );
-
-                    if (!mounted) return;
-                    Navigator.pop(context); // Close bottom sheet
-
-                    if (result['success']) {
+                    Navigator.pop(context);
+                    if (res['success']) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          behavior: SnackBarBehavior.floating,
+                        const SnackBar(
+                          content: Text("Request Sent"),
                           backgroundColor: Colors.green,
-                          content: Text("Success: ${result['message']}"),
                         ),
                       );
-                      _loadData(); // Refresh page stats
+                      _loadAllData();
                     } else {
-                      // Show error message (e.g., if blocked by fines)
-                      _showErrorDialog(result['message']);
+                      _showErrorDialog(res['message']);
                     }
                   },
-                  child: const Text(
-                    "CONFIRM REQUEST",
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1,
-                    ),
-                  ),
+                  child: const Text("CONFIRM REQUEST"),
                 ),
               ),
             ],
@@ -535,24 +617,6 @@ class _MyVotesPageState extends State<MyVotesPage> {
     );
   }
 
-  Widget _choiceChip(String label, bool isSelected, Function(bool) onSelected) {
-    return ChoiceChip(
-      label: Text(label),
-      selected: isSelected,
-      onSelected: onSelected,
-      selectedColor: Colors.deepPurple,
-      labelStyle: TextStyle(
-        color: isSelected ? Colors.white : Colors.black87,
-        fontWeight: FontWeight.w600,
-        fontSize: 12,
-      ),
-      backgroundColor: Colors.grey.shade100,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-    );
-  }
-
-  // Helper to show the error alert
   void _showErrorDialog(String message) {
     showDialog(
       context: context,
@@ -569,176 +633,67 @@ class _MyVotesPageState extends State<MyVotesPage> {
     );
   }
 
-  Widget _buildStatusCard(Map<String, dynamic> request) {
-    Color statusColor;
-    IconData statusIcon;
-    bool isPending = request['status'] == 'pending';
-
-    switch (request['status']) {
-      case 'approved':
-        statusColor = Colors.green;
-        statusIcon = Icons.check_circle_outline;
-        break;
-      case 'rejected':
-        statusColor = Colors.red;
-        statusIcon = Icons.highlight_off;
-        break;
-      default:
-        statusColor = Colors.orange;
-        statusIcon = Icons.pending_actions;
-    }
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade100),
-      ),
-      child: Column(
-        // Changed to Column to add the cancel button below if needed
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: statusColor.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(statusIcon, color: statusColor, size: 20),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "${request['guestCount']} Guest(s) - ${request['mealTime']}",
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
-                    ),
-                    Text(
-                      "Date: ${request['mealDate']}",
-                      style: const TextStyle(color: Colors.grey, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: statusColor,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  request['status'].toString().toUpperCase(),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 9,
-                  ),
-                ),
-              ),
-            ],
-          ),
-
-          // Show Cancel button only if status is pending
-          if (isPending) ...[
-            const Divider(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: TextButton.icon(
-                onPressed: () => _confirmCancellation(request['_id']),
-                icon: const Icon(Icons.cancel, color: Colors.red, size: 18),
-                label: const Text(
-                  "CANCEL REQUEST",
-                  style: TextStyle(
-                    color: Colors.red,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
+  // --- HELPERS ---
+  Widget _sectionHeader(String title) => Text(
+    title,
+    style: const TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.bold,
+      color: Colors.black54,
+    ),
+  );
+  Widget _buildEmptyStatus() => const Center(
+    child: Text(
+      "No requests",
+      style: TextStyle(fontSize: 12, color: Colors.grey),
+    ),
+  );
+  Widget _buildGuestRequestsList() {
+    return Column(
+      children: guestRequests.map((req) {
+        Color statusColor = req['status'] == 'approved'
+            ? Colors.green
+            : (req['status'] == 'rejected' ? Colors.red : Colors.orange);
+        return Card(
+          child: ListTile(
+            title: Text("${req['guestCount']} Guests - ${req['mealTime']}"),
+            subtitle: Text(req['mealDate']),
+            trailing: Text(
+              req['status'].toUpperCase(),
+              style: TextStyle(color: statusColor, fontWeight: FontWeight.bold),
             ),
-          ],
-        ],
-      ),
+          ),
+        );
+      }).toList(),
     );
   }
 
-  // Show a dialog to confirm the student wants to cancel
-  void _confirmCancellation(String requestId) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Cancel Request?"),
-        content: const Text(
-          "Are you sure you want to cancel this guest meal request?",
+  Widget _buildGuestMealAction() => ElevatedButton(
+    style: ElevatedButton.styleFrom(
+      backgroundColor: Colors.deepPurple,
+      foregroundColor: Colors.white,
+      minimumSize: const Size(double.infinity, 50),
+    ),
+    onPressed: _showGuestMealBottomSheet,
+    child: const Text("REQUEST GUEST MEAL"),
+  );
+  Widget _buildBlockedGuestAction() => Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: Colors.red.shade50,
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: const Row(
+      children: [
+        Icon(Icons.lock, color: Colors.red),
+        SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            "Guest Requests Locked. Clear pending dues.",
+            style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+          ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("NO"),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _handleCancelAction(requestId);
-            },
-            child: const Text(
-              "YES, CANCEL",
-              style: TextStyle(color: Colors.red),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Call the API to cancel
-  Future<void> _handleCancelAction(String requestId) async {
-    setState(() => isLoading = true);
-    try {
-      // You need to add cancelGuestMealRequest to your ApiService first
-      final result = await api.cancelGuestMealRequest(requestId);
-
-      if (result['success']) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Request cancelled successfully"),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result['message']),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint("Cancel error: $e");
-    } finally {
-      _loadData(); // Refresh the UI
-    }
-  }
-
-  Widget _buildEmptyStatus() {
-    return Text(
-      "No active guest meal requests.",
-      style: TextStyle(
-        color: Colors.grey.shade400,
-        fontSize: 12,
-        fontStyle: FontStyle.italic,
-      ),
-    );
-  }
+      ],
+    ),
+  );
 }

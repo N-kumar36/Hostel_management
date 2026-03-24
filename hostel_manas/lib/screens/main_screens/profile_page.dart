@@ -17,7 +17,10 @@ class _ProfilePageState extends State<ProfilePage> {
   final L_S = LocalService();
 
   Map<String, dynamic>? userData;
-  Map<String, int> mealStats = {"total": 0, "consumed": 0};
+  
+  // Stats variables to match new backend structure
+  int totalPlates = 0;
+  int consumedPlates = 0;
   bool loading = true;
 
   @override
@@ -28,13 +31,11 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _initializeProfile() async {
     if (mounted) setState(() => loading = true);
-    // Force refresh from API to ensure we have the latest photoURL
     await Future.wait([_fetchProfileData(), _fetchStats()]);
     if (mounted) setState(() => loading = false);
   }
 
   Future<void> _fetchProfileData() async {
-    // Pass forceRefresh: true if you updated the fetchProfile logic earlier
     final data = await L_S.fetchProfile(); 
     if (data != null && mounted) {
       setState(() {
@@ -43,21 +44,58 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  /// FIXED: Logic to parse the new nested JSON structure
   Future<void> _fetchStats() async {
-    final stats = await L_S.fetchAndCalculateMealStats();
-    if (mounted) {
-      setState(() {
-        mealStats = stats;
-      });
+    try {
+      final statsResponse = await api.getVoteSummary();
+      
+      int tempTotal = 0;
+      int tempConsumed = 0;
+
+      if (statsResponse['success'] == true && (statsResponse['data'] as List).isNotEmpty) {
+        final subData = statsResponse['data'][0];
+        
+        final Map<String, dynamic> maxLimits = subData['maxLimits'] ?? {};
+        final Map<String, dynamic> usage = subData['usage'] ?? {};
+
+        // Sum up all limits
+        maxLimits.forEach((key, value) => tempTotal += (value as num).toInt());
+        // Sum up all usage
+        usage.forEach((key, value) => tempConsumed += (value as num).toInt());
+      }
+
+      if (mounted) {
+        setState(() {
+          totalPlates = tempTotal;
+          consumedPlates = tempConsumed;
+        });
+      }
+    } catch (e) {
+      debugPrint("Stats Fetch Error: $e");
     }
+  }
+
+  /// NEW: Function to show image in full screen
+  void _showFullScreenImage(String imageUrl) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(backgroundColor: Colors.black, foregroundColor: Colors.white, elevation: 0),
+          body: Center(
+            child: InteractiveViewer( // Allows zoom
+              child: Image.network(imageUrl, fit: BoxFit.contain),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _updateImage() async {
     final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 40, // Reduced quality for faster upload
-    );
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 40);
 
     if (pickedFile != null) {
       setState(() => loading = true);
@@ -66,38 +104,16 @@ class _ProfilePageState extends State<ProfilePage> {
         final response = await api.updateProfilePic(imageFile);
 
         if (response['success']) {
-          // IMPORTANT: Explicitly fetch fresh data from API after upload
           await api.getProfile(); 
           await _initializeProfile();
-          
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Profile updated!"), backgroundColor: Colors.green),
-            );
-          }
-        } else {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(response['message'] ?? "Update failed"), backgroundColor: Colors.red),
-            );
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Profile updated!"), backgroundColor: Colors.green));
           }
         }
-      } catch (e) {
-        debugPrint("Upload Error: $e");
       } finally {
         if (mounted) setState(() => loading = false);
       }
     }
-  }
-
-  Future<void> _logout() async {
-    await L_S.clearCache();
-    if (!mounted) return;
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (context) => const LoginPage()),
-      (route) => false,
-    );
   }
 
   @override
@@ -110,7 +126,6 @@ class _ProfilePageState extends State<ProfilePage> {
         backgroundColor: Colors.deepPurple,
         foregroundColor: Colors.white,
         elevation: 0,
-        
       ),
       body: RefreshIndicator(
         onRefresh: _initializeProfile,
@@ -146,56 +161,33 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  Widget _buildHeader() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.only(top: 20, bottom: 30),
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Colors.deepPurple, Colors.purpleAccent],
-        ),
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(30)),
-      ),
-      child: Column(
-        children: [
-          _buildProfileImage(),
-          const SizedBox(height: 15),
-          Text(
-            userData?['name'] ?? "User",
-            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
-          ),
-          Text(
-            "Reg: ${userData?['regNum'] ?? 'N/A'}",
-            style: const TextStyle(color: Colors.white70, letterSpacing: 1),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildProfileImage() {
     String? photoUrl = userData?['photoURL'];
 
     return Stack(
       children: [
-        Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 4),
-          ),
-          child: CircleAvatar(
-            radius: 55,
-            backgroundColor: Colors.white,
-            // Added key to force refresh when URL changes
-            key: ValueKey(photoUrl), 
-            backgroundImage: (photoUrl != null && photoUrl.isNotEmpty)
-                ? NetworkImage(photoUrl)
-                : null,
-            child: (photoUrl == null || photoUrl.isEmpty)
-                ? const Icon(Icons.person, size: 60, color: Colors.deepPurple)
-                : null,
+        GestureDetector(
+          onTap: () {
+            if (photoUrl != null && photoUrl.isNotEmpty) {
+              _showFullScreenImage(photoUrl);
+            }
+          },
+          child: Container(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 4),
+            ),
+            child: CircleAvatar(
+              radius: 55,
+              backgroundColor: Colors.white,
+              key: ValueKey(photoUrl), 
+              backgroundImage: (photoUrl != null && photoUrl.isNotEmpty)
+                  ? NetworkImage(photoUrl)
+                  : null,
+              child: (photoUrl == null || photoUrl.isEmpty)
+                  ? const Icon(Icons.person, size: 60, color: Colors.deepPurple)
+                  : null,
+            ),
           ),
         ),
         Positioned(
@@ -219,9 +211,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _packageCard() {
-    int total = mealStats['total'] ?? 0;
-    int used = mealStats['consumed'] ?? 0;
-    int remaining = total - used;
+    int remaining = totalPlates - consumedPlates;
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -233,9 +223,39 @@ class _ProfilePageState extends State<ProfilePage> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _statItem("Total", "$total"),
-          _statItem("Consumed", "$used"),
+          _statItem("Total", "$totalPlates"),
+          _statItem("Used", "$consumedPlates"),
           _statItem("Left", "${remaining < 0 ? 0 : remaining}"),
+        ],
+      ),
+    );
+  }
+
+  // --- (Keep other UI components like _buildHeader, _statItem, _logoutButton, _sectionTitle, _buildInfoSection, _infoTile same as provided) ---
+  Widget _buildHeader() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.only(top: 20, bottom: 30),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Colors.deepPurple, Colors.purpleAccent],
+        ),
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(30)),
+      ),
+      child: Column(
+        children: [
+          _buildProfileImage(),
+          const SizedBox(height: 15),
+          Text(
+            userData?['name'] ?? "User",
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+          ),
+          Text(
+            "Reg: ${userData?['regNum'] ?? 'N/A'}",
+            style: const TextStyle(color: Colors.white70, letterSpacing: 1),
+          ),
         ],
       ),
     );
@@ -255,21 +275,42 @@ class _ProfilePageState extends State<ProfilePage> {
       style: OutlinedButton.styleFrom(
         foregroundColor: Colors.red,
         side: BorderSide(color: Colors.red.shade100),
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 24),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
       ),
-      onPressed: _logout,
+      onPressed: () {
+        showDialog(
+          context: context,
+          builder: (c) => AlertDialog(
+            title: const Text("Logout?"),
+            content: const Text("Are you sure you want to end your session?"),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(c), child: const Text("CANCEL")),
+              TextButton(onPressed: () { Navigator.pop(c); _logout(); }, child: const Text("LOGOUT", style: TextStyle(color: Colors.red))),
+            ],
+          ),
+        );
+      },
       icon: const Icon(Icons.logout),
       label: const Text("Logout Session", style: TextStyle(fontWeight: FontWeight.bold)),
     );
   }
 
+  Future<void> _logout() async {
+    await L_S.clearCache();
+    if (!mounted) return;
+    Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (context) => const LoginPage()), (route) => false);
+  }
+
   Widget _sectionTitle(String title) {
     return Padding(
       padding: const EdgeInsets.only(left: 4, bottom: 10),
-      child: Text(
-        title.toUpperCase(),
-        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey.shade600, letterSpacing: 1.2),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          title.toUpperCase(),
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey.shade600, letterSpacing: 1.2),
+        ),
       ),
     );
   }
@@ -285,7 +326,7 @@ class _ProfilePageState extends State<ProfilePage> {
     return ListTile(
       leading: Icon(icon, color: Colors.deepPurple, size: 22),
       title: Text(title, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-      subtitle: Text(value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+      subtitle: Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
     );
   }
 }

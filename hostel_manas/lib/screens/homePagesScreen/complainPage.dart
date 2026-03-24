@@ -29,7 +29,7 @@ class _ComplainPageState extends State<ComplainPage> {
     'Others',
   ];
 
-  // ✅ Step 1: Logic to pick image from specific source
+  //  Step 1: Logic to pick image from specific source
   Future<void> _pickImage(ImageSource source) async {
     try {
       final XFile? image = await _picker.pickImage(

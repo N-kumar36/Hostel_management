@@ -3,13 +3,14 @@ import 'dart:io';
 import 'package:flutter/rendering.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:intl/intl.dart';
+
 // Assuming this contains your convertMealsToWeekly logic
 
 class ApiService {
   // final String baseUrl = "https://hostel-management-3e61.onrender.com/api";
-  // final String baseUrl = "http://192.168.0.39:5000/api";
-  final String baseUrl = "http://192.168.18.253:5000/api";
-  
+  final String baseUrl = "http://192.168.0.39:5000/api";
+  // final String baseUrl = "http://192.168.18.253:5000/api";
 
   // Helper to get headers with Bearer token
   Future<Map<String, String>> _getHeaders() async {
@@ -210,8 +211,73 @@ class ApiService {
     }
   }
 
-  // complain create
+  Future<Map<String, dynamic>> getVoteSummary() async {
+    try {
 
+      final response = await http.get(
+        Uri.parse(
+          '$baseUrl/meal-plan/getAllSubscriptions',
+        ),
+        headers: await _getHeaders(),
+      );
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        throw Exception('Failed to load history');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  // get meal packages
+  Future<Map<String, dynamic>> getmealPackages() async {
+    try {
+      final response = await http.get(
+        Uri.parse("$baseUrl/meal-plan/get"), // Adjust route if needed
+        headers: await _getHeaders(),
+      );
+
+      if (response.statusCode == 200) {
+        // Return the full map so we can access both 'packages' and 'activePackageId'
+        return json.decode(response.body);
+      } else {
+        throw Exception("Failed to load packages");
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  // select meal packages
+  Future<Map<String, dynamic>> selectPackage(String planId) async {
+    try {
+      String currentMonth = DateFormat('MMMM yyyy').format(DateTime.now());
+
+      final response = await http.post(
+        Uri.parse("$baseUrl/meal-plan/select"),
+        headers: await _getHeaders(),
+        body: json.encode({
+          "planId": planId, // Matches backend controller variable
+          "currentMonth": currentMonth, // Matches backend requirement
+        }),
+      );
+
+      final result = json.decode(response.body);
+
+      if (response.statusCode == 200) {
+        return result;
+      } else {
+        throw Exception(result['message'] ?? "Failed to Select Package");
+      }
+    } catch (e) {
+      debugPrint("Select Package Error: $e");
+      rethrow;
+    }
+  }
+
+  // complain create
   Future<Map<String, dynamic>> createComplaintWithImage(
     String category,
     String description,
@@ -358,7 +424,7 @@ class ApiService {
   // Add this to your ApiService class
   Future<Map<String, dynamic>> cancelGuestMealRequest(String requestId) async {
     try {
-      final response = await http.put(
+      final response = await http.delete(
         Uri.parse("$baseUrl/guest-meals/cancel/$requestId"),
         headers:
             await _getHeaders(), // Must include 'Authorization': 'Bearer <token>'
@@ -751,7 +817,7 @@ class ApiService {
   // Serve meal
   Future<Map<String, dynamic>> updateServeStatus(String voteId) async {
     try {
-      final response = await http.patch(
+      final response = await http.put(
         Uri.parse('$baseUrl/vote/serve'),
         headers: await _getHeaders(),
         body: jsonEncode({"voteId": voteId}),
@@ -803,7 +869,6 @@ class ApiService {
         headers: await _getHeaders(),
         body: json.encode({"status": status}),
       );
-
 
       if (response.statusCode == 200) {
         return true;
@@ -867,17 +932,18 @@ class ApiService {
   }
 
   // 4. Save/Update the persistent Price Plan in the Database
-  Future<bool> saveMealPriceTable(Map<String, dynamic> priceData) async {
+  Future<bool> saveSettingData(Map<String, dynamic> fullConfig) async {
     try {
       final response = await http.post(
-        Uri.parse("$baseUrl/fines/price-table"),
+        Uri.parse("$baseUrl/managers/sattingData"),
         headers: await _getHeaders(),
         body: json.encode({
-          "baseFee": priceData['baseFee'],
-          "prices": priceData['prices'], // This is your nested Map
+          "finePrices": fullConfig['finePrices'],
+          "plans": fullConfig['plans'], // This is your nested Map
+          "upi": fullConfig['upi'],
         }),
       );
-      print("saveMealPriceTable $priceData \nresponse $response");
+      print("saveMealPriceTable $fullConfig \nresponse $response");
       return response.statusCode == 200;
     } catch (e) {
       return false;
@@ -885,10 +951,10 @@ class ApiService {
   }
 
   // 5. Load the saved Price Plan when the page opens
-  Future<Map<String, dynamic>?> getMealPriceTable() async {
+  Future<Map<String, dynamic>?> getSattingData() async {
     try {
       final response = await http.get(
-        Uri.parse("$baseUrl/fines/price-table"),
+        Uri.parse("$baseUrl/managers/sattingData"),
         headers: await _getHeaders(),
       );
       if (response.statusCode == 200) {
@@ -939,7 +1005,7 @@ class ApiService {
   }
 
   // get student sumary
-    Future<Map<String, dynamic>> getStudentSummary(String studentOd) async {
+  Future<Map<String, dynamic>> getStudentSummary(String studentOd) async {
     try {
       final response = await http.get(
         Uri.parse('$baseUrl/managers/Status/$studentOd'),

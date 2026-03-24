@@ -70,7 +70,7 @@ export const cancelVote = async (req, res) => {
   try {
     const { mealId, timeSlot } = req.body;
 
-    console.log("cancel api was call ", mealId )
+    console.log("cancel api was call ", mealId)
 
     // Verify the meal isn't locked yet
     const meal = await Meal.findById(mealId);
@@ -105,9 +105,9 @@ export const checkVoteStatus = async (req, res) => {
 
     const status = {
       // Slot: Morning
-      morning: !!morningVote, 
+      morning: !!morningVote,
       morningServed: morningVote ? morningVote.isServed : false,
-      
+
       // Slot: Night
       night: !!nightVote,
       nightServed: nightVote ? nightVote.isServed : false
@@ -123,19 +123,19 @@ export const checkVoteStatus = async (req, res) => {
 // get history
 export const getVoteHistory = async (req, res) => {
   try {
-    const studentId = req.user.id; 
-    const hostelId = req.user.hostelId; 
+    const studentId = req.user.id;
+    const hostelId = req.user.hostelId;
 
-    const month = req.query.month; 
-    const year = req.query.year;   
+    const month = req.query.month;
+    const year = req.query.year;
 
-    let matchStage = { 
-      hostelId: new mongoose.Types.ObjectId(hostelId) 
+    let matchStage = {
+      hostelId: new mongoose.Types.ObjectId(hostelId)
     };
 
     if (month && year) {
-      const formattedMonth = month.padStart(2, '0'); 
-      const datePattern = new RegExp(`/${formattedMonth}/${year}$`); 
+      const formattedMonth = month.padStart(2, '0');
+      const datePattern = new RegExp(`/${formattedMonth}/${year}$`);
       matchStage.date = { $regex: datePattern };
     }
 
@@ -187,14 +187,14 @@ export const getVoteHistory = async (req, res) => {
       {
         $project: {
           _id: 1,
-          date: 1, 
+          date: 1,
           timeSlot: "$slots.timeSlot",
           menuItem: "$slots.menuItem",
           isCancelled: "$slots.isCancelled",
-          
+
           //  FIX 1: Returns TRUE if ANY vote in the array has isGuest: true
-          hasGuest: { 
-            $in: [true, { $ifNull: ["$voteData.isGuest", []] }] 
+          hasGuest: {
+            $in: [true, { $ifNull: ["$voteData.isGuest", []] }]
           },
 
           //  FIX 2: Accurately counts HOW MANY guest votes exist for this meal
@@ -268,9 +268,9 @@ export const getVotesByDateAndSlot = async (req, res) => {
     }
 
     // 2. Fetch all votes (Students + Individual Guests)
-    const votes = await Vote.find({ 
-      mealId: meal._id, 
-      timeSlot: timeSlot.toLowerCase() 
+    const votes = await Vote.find({
+      mealId: meal._id,
+      timeSlot: timeSlot.toLowerCase()
     }).populate("userId", "name email photoURL");
 
     // 3. Map the data
@@ -287,13 +287,13 @@ export const getVotesByDateAndSlot = async (req, res) => {
       isServed: vote.isServed,
       isGuest: vote.isGuest || false,
       // hostName helps the manager see who requested the guest
-      hostName: vote.isGuest ? vote.userId?.name : null 
+      hostName: vote.isGuest ? vote.userId?.name : null
     }));
 
-    res.json({ 
-      success: true, 
-      count: formattedData.length, 
-      data: formattedData 
+    res.json({
+      success: true,
+      count: formattedData.length,
+      data: formattedData
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -305,6 +305,95 @@ export const getVotesByDateAndSlot = async (req, res) => {
 
 
 // Controller: toggleServeStatus
+// export const toggleServeStatus = async (req, res) => {
+//   try {
+//     const { voteId } = req.body;
+
+//     // 1. Find Vote and Meal data
+//     const vote = await Vote.findById(voteId).populate("mealId");
+//     if (!vote) return res.status(404).json({ success: false, message: "Vote not found" });
+
+//     const mealDate = moment(vote.mealId.date, "DD/MM/YYYY");
+//     const subscriptionMonth = mealDate.format("MMMM YYYY");
+//     const mealType = vote.mealType.toLowerCase();
+
+//     // 2. Find Subscription
+//     const subscription = await StudentSubscription.findOne({
+//       studentId: vote.userId,
+//       month: subscriptionMonth,
+//       status: "active"
+//     });
+
+//     if (!subscription && !vote.isGuest) {
+//       return res.status(400).json({ success: false, message: "No active plan for this month" });
+//     }
+
+//     const isNowServed = !vote.isServed;
+
+//     // --- AUTO FINE LOGIC ---
+//     if (isNowServed && !vote.isGuest) {
+//       const currentUsage = subscription.usage[mealType] || 0;
+//       const maxAllowed = subscription.maxLimits[mealType] || 0;
+
+//       // Check if this meal is EXTRA
+//       if (currentUsage >= maxAllowed) {
+//         // Fetch specific fine prices for this hostel
+//         const priceList = await FinePrice.findOne({ hostelId: vote.hostelId });
+//         const fineAmount = priceList ? priceList.prices[mealType] : 50; // Fallback to 50 if no price set
+
+//         // Find manager ID to assign the fine
+//         const manager = await User.findOne({ hostelId: vote.hostelId, role: "manager" });
+
+//         // Create the Automatic Fine
+//         await Fine.create({
+//           studentId: vote.userId,
+//           managerId: manager ? manager._id : vote.userId, // Fallback safety
+//           hostelId: vote.hostelId,
+//           title: `Extra Meal Charge - ${vote.mealType.toUpperCase()}`,
+//           amount: fineAmount,
+//           description: `Automatically generated: Limit for ${mealType} was ${maxAllowed}. Student is consuming an extra plate.`,
+//           status: "pending",
+//           date: new Date()
+//         });
+//       }
+//     }
+
+//     // 3. Update Subscription Usage
+//     if (!vote.isGuest && subscription) {
+//       const incValue = isNowServed ? 1 : -1;
+//       const updateKey = `usage.${mealType}`;
+
+//       if (!isNowServed && subscription.usage[mealType] <= 0) {
+//         // Safety: Don't decrement below 0
+//       } else {
+//         await StudentSubscription.findByIdAndUpdate(subscription._id, {
+//           $inc: { [updateKey]: incValue }
+//         });
+//       }
+//     }
+
+//     // 4. Update Vote Status
+//     vote.isServed = isNowServed;
+//     vote.servedAt = isNowServed ? new Date() : null;
+//     await vote.save();
+
+//     res.json({
+//       success: true,
+//       message: vote.isServed
+//         ? (subscription.usage[mealType] >= subscription.maxLimits[mealType]
+//           ? `Extra ${vote.mealType} served. Fine generated!`
+//           : `Marked ${vote.mealType} as served`)
+//         : "Service undone",
+//       isServed: vote.isServed
+//     });
+
+//   } catch (error) {
+//     console.error("Toggle Serve Error:", error);
+//     res.status(500).json({ success: false, message: error.message });
+//   }
+// };
+
+
 export const toggleServeStatus = async (req, res) => {
   try {
     const { voteId } = req.body;
@@ -317,11 +406,11 @@ export const toggleServeStatus = async (req, res) => {
     const subscriptionMonth = mealDate.format("MMMM YYYY");
     const mealType = vote.mealType.toLowerCase();
 
-    // 2. Find Subscription
+    // 2. Find Subscription (Allow both active and completed, in case we are undoing a serve)
     const subscription = await StudentSubscription.findOne({
       studentId: vote.userId,
       month: subscriptionMonth,
-      status: "active"
+      status: { $in: ["active", "completed"] } 
     });
 
     if (!subscription && !vote.isGuest) {
@@ -337,17 +426,14 @@ export const toggleServeStatus = async (req, res) => {
 
       // Check if this meal is EXTRA
       if (currentUsage >= maxAllowed) {
-        // Fetch specific fine prices for this hostel
         const priceList = await FinePrice.findOne({ hostelId: vote.hostelId });
-        const fineAmount = priceList ? priceList.prices[mealType] : 50; // Fallback to 50 if no price set
+        const fineAmount = priceList ? priceList.prices[mealType] : 50; 
 
-        // Find manager ID to assign the fine
         const manager = await User.findOne({ hostelId: vote.hostelId, role: "manager" });
 
-        // Create the Automatic Fine
         await Fine.create({
           studentId: vote.userId,
-          managerId: manager ? manager._id : vote.userId, // Fallback safety
+          managerId: manager ? manager._id : vote.userId, 
           hostelId: vote.hostelId,
           title: `Extra Meal Charge - ${vote.mealType.toUpperCase()}`,
           amount: fineAmount,
@@ -359,16 +445,20 @@ export const toggleServeStatus = async (req, res) => {
     }
 
     // 3. Update Subscription Usage
+    let updatedSubscriptionId = null;
+    
     if (!vote.isGuest && subscription) {
       const incValue = isNowServed ? 1 : -1;
       const updateKey = `usage.${mealType}`;
 
-      if (!isNowServed && subscription.usage[mealType] <= 0) {
-        // Safety: Don't decrement below 0
-      } else {
-        await StudentSubscription.findByIdAndUpdate(subscription._id, {
-          $inc: { [updateKey]: incValue }
-        });
+      if (!(!isNowServed && subscription.usage[mealType] <= 0)) {
+        // ✨ NEW: Use { new: true } to get the document AFTER the increment/decrement
+        const updatedSub = await StudentSubscription.findByIdAndUpdate(
+          subscription._id, 
+          { $inc: { [updateKey]: incValue } },
+          { new: true } 
+        );
+        updatedSubscriptionId = updatedSub._id;
       }
     }
 
@@ -376,6 +466,11 @@ export const toggleServeStatus = async (req, res) => {
     vote.isServed = isNowServed;
     vote.servedAt = isNowServed ? new Date() : null;
     await vote.save();
+
+    // 5. ✨ MAGIC: Run the auto-completion check!
+    if (updatedSubscriptionId) {
+      await consumptionOverviewCheck(updatedSubscriptionId);
+    }
 
     res.json({
       success: true,
@@ -390,5 +485,37 @@ export const toggleServeStatus = async (req, res) => {
   } catch (error) {
     console.error("Toggle Serve Error:", error);
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// --- HELPER FUNCTION ---
+const consumptionOverviewCheck = async (subscriptionId) => {
+  try {
+    const sub = await StudentSubscription.findById(subscriptionId);
+    if (!sub) return;
+
+    // Check if EVERY category's usage has reached or exceeded its max limit
+    const isCompleted =
+      sub.usage.veg >= sub.maxLimits.veg &&
+      sub.usage.egg >= sub.maxLimits.egg &&
+      sub.usage.paneer >= sub.maxLimits.paneer &&
+      sub.usage.chicken >= sub.maxLimits.chicken &&
+      sub.usage.fish >= sub.maxLimits.fish &&
+      sub.usage.mutton >= sub.maxLimits.mutton;
+
+    // If limits are met, mark as completed
+    if (isCompleted && sub.status !== "completed") {
+      sub.status = "completed";
+      await sub.save();
+      console.log(`Subscription ${sub._id} is now COMPLETED.`);
+    }
+    // If limits are NOT met (e.g., manager un-served a meal), revert to active
+    else if (!isCompleted && sub.status === "completed") {
+      sub.status = "active";
+      await sub.save();
+      console.log(`Subscription ${sub._id} reverted back to ACTIVE.`);
+    }
+  } catch (error) {
+    console.error("Consumption Check Error:", error);
   }
 };

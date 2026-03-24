@@ -1,6 +1,6 @@
 import StudentSubscription from "../models/StudentSubscription.js";
 import MealPlan from "../models/MealPlan.js";
-import Fine from "../models/fine.model.js";
+import Fine from "../models/fine.model.js"; // Verify this exact filename is correct
 import User from "../models/User.js"
 
 export const selectPackage = async (req, res) => {
@@ -12,25 +12,24 @@ export const selectPackage = async (req, res) => {
         const newPlan = await MealPlan.findById(planId);
         if (!newPlan) return res.status(404).json({ success: false, message: "Plan not found" });
 
-        // 1. Check for existing subscription that is NOT 'completed'
-        // If it's active or pending, we treat it as the current plan.
-        // If it's completed, we allow the student to create a brand new one.
-        const existingSub = await StudentSubscription.findOne({ 
-            studentId, 
+        // 1. Fetch ONLY Active or Pending subscriptions for this month.
+        // We do NOT care about 'completed' ones because they are allowed to buy a new one.
+        const activeSub = await StudentSubscription.findOne({
+            studentId,
             month: currentMonth,
-            status: { $in: ["pending", "active"] } // Ignore 'completed' plans
+            status: { $in: ["pending", "active"] }
         });
 
         let finalPrice = newPlan.monthlyPrice;
         let isUpgrade = false;
 
-        // 2. Validation Logic
-        if (existingSub) {
-            // Check if they are trying to go from 30 -> 60 (Upgrade)
-            if (existingSub.planType === "30 meals" && newPlan.planType === "60 meals") {
-                finalPrice = newPlan.monthlyPrice - existingSub.amount;
+        // 2. Validate against existing ACTIVE/PENDING plans
+        if (activeSub) {
+            if (activeSub.planType === "30 meals" && newPlan.planType === "60 meals") {
+                // It's a valid upgrade
+                finalPrice = newPlan.monthlyPrice - activeSub.amount;
                 isUpgrade = true;
-            } else if (existingSub.planType === newPlan.planType) {
+            } else if (activeSub.planType === newPlan.planType) {
                 return res.status(400).json({
                     success: false,
                     message: "You already have this plan active for this month."
@@ -38,29 +37,29 @@ export const selectPackage = async (req, res) => {
             } else {
                 return res.status(400).json({
                     success: false,
-                    message: "Current subscription must be completed or upgraded from 30 to 60 meals."
+                    message: "You cannot change your active subscription unless upgrading from 30 to 60 meals."
                 });
             }
         }
 
-        // 3. Create or Update Subscription
-        // If isUpgrade is true, we update the existing pending/active one.
-        // If isUpgrade is false, it means existingSub is null (either none exists or previous was completed)
+        // 3. Create or Update
         let subscription;
-        if (isUpgrade) {
+        if (isUpgrade && activeSub) {
+            // Update the existing active/pending one
             subscription = await StudentSubscription.findByIdAndUpdate(
-                existingSub._id,
+                activeSub._id,
                 {
                     mealsPlanId: newPlan._id,
                     planType: newPlan.planType,
-                    amount: newPlan.monthlyPrice,
+                    amount: newPlan.monthlyPrice, // The total value of the new plan
                     maxLimits: newPlan.limits,
-                    status: "pending", 
+                    status: "pending", // Lock the plan until the upgrade fee is paid
                 },
                 { new: true }
             );
         } else {
-            // CREATE NEW (This handles both first-time and re-buying after 'completed')
+            // CREATE NEW 
+            // This happens if it's the first plan of the month, OR if their previous plan was 'completed'
             subscription = await StudentSubscription.create({
                 studentId,
                 hostelId,
@@ -74,16 +73,16 @@ export const selectPackage = async (req, res) => {
             });
         }
 
+        // 4. Generate the Bill
         const manager = await User.findOne({ hostelId, role: "manager" });
         if (!manager) return res.status(404).json({ success: false, message: "Manager not found" });
 
-        // 4. Create the Bill
         const fineBill = await Fine.create({
             studentId,
             managerId: manager._id,
             hostelId,
             title: isUpgrade ? `Plan Upgrade (${currentMonth})` : `Mess Bill - ${newPlan.planType}`,
-            amount: finalPrice,
+            amount: finalPrice, // The actual amount they owe right now
             description: isUpgrade ? `Upgrade difference for 60 meals.` : `New monthly subscription.`,
             isMealPackage: true,
             subscriptionId: subscription._id,
@@ -92,7 +91,7 @@ export const selectPackage = async (req, res) => {
 
         res.status(200).json({
             success: true,
-            message: isUpgrade ? "Upgrade request sent!" : "Plan selected! Pay bill to activate.",
+            message: isUpgrade ? "Upgrade request sent! Pay bill to activate." : "Plan selected! Pay bill to activate.",
             subscription,
             bill: fineBill
         });
@@ -112,7 +111,7 @@ export const getAllSubscriptions = async (req, res) => {
         const subscriptions = await StudentSubscription.find({
             studentId: studentId,
             hostelId: hostelId
-        }).sort({ createdAt: -1 }); 
+        }).sort({ createdAt: -1 });
 
         res.status(200).json({
             success: true,

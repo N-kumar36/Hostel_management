@@ -1,4 +1,4 @@
-import 'package:HostelMess/screens/managerScreen/FineManagementPage/fine_management_page.dart';
+import 'package:HostelMess/screens/managerScreen/fine_management_page.dart';
 import 'package:HostelMess/screens/managerScreen/PendingStudentsPage.dart';
 import 'package:HostelMess/screens/managerScreen/RoutineManagementPage.dart';
 import 'package:HostelMess/screens/managerScreen/ServeMealPage.dart';
