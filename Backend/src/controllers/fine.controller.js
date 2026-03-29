@@ -89,137 +89,102 @@ export const payFine = async (req, res) => {
 
 
 
-export const generateBulkFines = async (req, res) => {
-  try {
-    const { month } = req.body; // e.g., "March 2026"
-    const managerId = req.user._id;
-    const hostelId = req.user.hostelId;
-
-    console.log("generateBulkFines", month);
-
-    // 1. Fetch only the Base Fee from the Price Table
-    const priceTable = await MealPrice.findOne({ hostelId });
-    if (!priceTable) {
-      return res.status(404).json({
-        success: false,
-        message: "Base Fee not set. Please configure the Price Table first."
-      });
-    }
-
-    const baseFee = priceTable.baseFee;
-
-    // 2. Get all students in this manager's hostel
-    const students = await User.find({ hostelId, role: 'student' });
-
-    if (students.length === 0) {
-      return res.status(404).json({ success: false, message: "No students found." });
-    }
-
-    // 3. Create a fixed bill for every student (Ignoring Votes)
-    const batchOperations = students.map(async (student) => {
-      return await Fine.findOneAndUpdate(
-        {
-          studentId: student._id,
-          title: `Mess Fee - ${month}`
-        },
-        {
-          studentId: student._id,
-          managerId: managerId,
-          hostelId: hostelId,
-          title: `Mess Fee - ${month}`,
-          amount: baseFee, // Fixed amount
-          description: `Fixed Monthly Mess Base Fee for ${month}`,
-          status: 'pending',
-          date: new Date()
-        },
-        { upsert: true, new: true }
-      );
-    });
-
-    await Promise.all(batchOperations);
-
-    res.status(200).json({
-      success: true,
-      message: `Successfully sent ₹${baseFee} payment request to ${students.length} students.`,
-    });
-
-  } catch (error) {
-    console.error("Bulk Fine Error:", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-
-export const verifyFinePayment = async (req, res) => {
-  try {
-    const fineId = req.params.id;
-
-    // 1. Update the Fine status to success
-    const updatedFine = await Fine.findByIdAndUpdate(
-      fineId,
-      {
-        status: 'success',
-        paidAt: new Date(),
-        verifiedBy: req.user._id || req.user.id // Track which manager verified it
-      },
-      { new: true }
-    );
-
-    if (!updatedFine) {
-      return res.status(404).json({ success: false, message: "Fine record not found" });
-    }
-
-    // 2. CRITICAL FIX: If this fine was for a Meal Package, activate the subscription
-    if (updatedFine.isMealPackage && updatedFine.subscriptionId) {
-      await StudentSubscription.findByIdAndUpdate(
-        updatedFine.subscriptionId,
-        {
-          status: 'active' // Plan is now ready for QR scanning and usage
-        }
-      );
-
-      console.log(`Subscription ${updatedFine.subscriptionId} activated for student.`);
-    }
-
-    res.status(200).json({
-      success: true,
-      message: updatedFine.isMealPackage
-        ? "Payment verified and Meal Plan activated!"
-        : "Fine payment verified successfully",
-      data: updatedFine
-    });
-
-  } catch (error) {
-    console.error("Verify Payment Error:", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
 
 
 
 export const getPendingFines = async (req, res) => {
   try {
-    // 1. Get hostelId from the manager's token
     const hostelId = req.user.hostelId;
+    const month = req.query.month; // e.g., ?month=March 2026 or ?month=2026-03
 
-    // 2. Find fines using the correct field names from your schema
-    const pendingFines = await Fine.find({
-      hostelId: hostelId,
-      status: "processing", // Ensure this matches your enum
-    })
-      .populate("studentId", "name email photoURL") //  Fixed: model uses 'studentId', not 'userId'
-      .sort({ date: -1 }); // Sorting by your 'date' field
+    let query = { hostelId: hostelId };
+
+    console.log("Received month query parameter:", month);
+
+    if (month) {
+
+      const startDate = new Date(month);
+
+      if (isNaN(startDate.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid month format provided."
+        });
+      }
+
+      const endDate = new Date(startDate);
+      endDate.setMonth(endDate.getMonth() + 1);
+
+      query.date = {
+        $gte: startDate, // On or after the 1st of the target month
+        $lt: endDate     // Strictly before the 1st of the next month
+      };
+    }
+
+    // 3. Execute the query
+    const pendingFines = await Fine.find(query)
+      .populate("studentId", "name email photoURL")
+      .sort({ date: -1 });
 
     res.status(200).json({
       success: true,
       count: pendingFines.length,
-      data: pendingFines, // 'paymentScreenshot' will be inside these objects
+      data: pendingFines,
     });
   } catch (error) {
     console.error("Error in getPendingFines:", error);
     res.status(500).json({
       success: false,
       message: "Error fetching pending fines: " + error.message,
+    });
+  }
+};
+
+
+// Manager approves or rejects a fine/bill
+export const updateFineStatus = async (req, res) => {
+  try {
+    const { id } = req.params; // Matches $billId from your Dart code
+    const { status } = req.body; // 'success', 'rejected', 'processing', etc.
+
+    // 1. Find and update the Fine document
+    const updatedFine = await Fine.findByIdAndUpdate(
+      id,
+      { status: status },
+      { new: true }
+    );
+
+    if (!updatedFine) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Bill not found" 
+      });
+    }
+
+    // 2. (Optional but Recommended) Update linked subscription status
+    // If the manager rejects the payment, we should probably pause their meal plan
+    if (updatedFine.isMealPackage && updatedFine.subscriptionId) {
+      let subStatus = 'pending';
+      if (status === 'success') subStatus = 'active';
+      if (status === 'rejected') subStatus = 'pending'; // Revert to pending so they have to pay again
+
+      await StudentSubscription.findByIdAndUpdate(
+        updatedFine.subscriptionId,
+        { status: subStatus }
+      );
+    }
+
+    res.status(200).json({ 
+      success: true, 
+      message: `Bill marked as ${status}`,
+      data: updatedFine 
+    });
+
+  } catch (error) {
+    console.error("Error updating fine status:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message 
     });
   }
 };

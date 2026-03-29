@@ -1,9 +1,7 @@
-import moment from "moment"; // Optional but helpful for date formatting
+import moment from "moment"; 
 import Meal from "../models/Meal.js";
 import mongoose from 'mongoose';
-import { param } from "express-validator";
-
-
+import Routine from "../models/WeeklyRoutine.js"; 
 
 export const createMeal = async (req, res) => {
   try {
@@ -18,7 +16,7 @@ export const createMeal = async (req, res) => {
     const existingMeal = await Meal.findOne({ date, hostelId });
 
     if (existingMeal) {
-      //  FIX: Use new Date() to ensure proper ISO storage in MongoDB
+      // FIX: Use new Date() to ensure proper ISO storage in MongoDB
       existingMeal.morning.manu = morning.manu;
       existingMeal.morning.lockTime = new Date(morning.lockTime);
       existingMeal.night.manu = night.manu;
@@ -59,23 +57,108 @@ export const createMeal = async (req, res) => {
   }
 };
 
+// Auto Generate Meals based on Routine
+// Auto Generate Meals based on Routine
+// Auto Generate Meals based on Routine
+export const autoGenerateMeals = async (req, res) => {
+  try {
+    const { startDate, days } = req.body; 
+    const hostelId = req.user.hostelId;
+
+    // 1. Get the routine for this hostel
+    const routineDoc = await Routine.findOne({ hostelId: hostelId });
+    if (!routineDoc || !routineDoc.routine) {
+      return res.status(400).json({ success: false, message: "Weekly routine is missing. Please set it first." });
+    }
+    const routine = routineDoc.routine;
+
+    // 2. Parse startDate
+    const [day, month, year] = startDate.split('/');
+    let currentDate = new Date(year, month - 1, day);
+
+    let createdCount = 0;
+    let activeCount = await Meal.countDocuments({ hostelId: hostelId });
+
+    // 3. Loop and create meals
+    for (let i = 0; i < days; i++) {
+      const dateString = `${String(currentDate.getDate()).padStart(2, '0')}/${String(currentDate.getMonth() + 1).padStart(2, '0')}/${currentDate.getFullYear()}`;
+      
+      let dayOfWeek = currentDate.getDay();
+      if (dayOfWeek === 0) dayOfWeek = 7; 
+      
+      const dayKey = dayOfWeek.toString();
+      const dayRoutine = routine.get ? routine.get(dayKey) : routine[dayKey];
+      
+      if (dayRoutine) {
+        const existingMeal = await Meal.findOne({ date: dateString, hostelId: hostelId });
+        
+        if (!existingMeal) {
+          
+          // ✅ FIX: Use Date.UTC to force exact 07:00:00 and 17:00:00 in MongoDB
+          const morningLock = new Date(Date.UTC(
+            currentDate.getFullYear(), 
+            currentDate.getMonth(), 
+            currentDate.getDate(), 
+            7, 0, 0
+          )); 
+          
+          const nightLock = new Date(Date.UTC(
+            currentDate.getFullYear(), 
+            currentDate.getMonth(), 
+            currentDate.getDate(), 
+            17, 0, 0
+          )); 
+
+          const nextMorningNum = (activeCount * 2 + 1).toString();
+          const nextNightNum = (activeCount * 2 + 2).toString();
+
+          await Meal.create({
+            hostelId: hostelId,
+            date: dateString,
+            morning: { manu: dayRoutine.morning, mealsNum: nextMorningNum, lockTime: morningLock, isCancelled: false },
+            night: { manu: dayRoutine.night, mealsNum: nextNightNum, lockTime: nightLock, isCancelled: false }
+          });
+          
+          activeCount++;
+          createdCount++;
+        } else {
+          console.log(`Meal already exists for ${dateString}, skipping.`);
+        }
+      } else {
+        console.log(`No routine found in DB for Day ${dayKey}`);
+      }
+      
+      // Move to the next day
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    res.status(200).json({ 
+      success: true, 
+      message: `Successfully generated ${createdCount} new meals.` 
+    });
+
+  } catch (error) {
+    console.error("Auto Generate Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 export const updateMeal = async (req, res) => {
   try {
     const { mealId } = req.params;
     const updateData = {};
 
-
     // Use Dot Notation to update specific nested fields only
     if (req.body.morning) {
       if (req.body.morning.manu) updateData["morning.manu"] = req.body.morning.manu;
       if (req.body.morning.isCancelled !== undefined) updateData["morning.isCancelled"] = req.body.morning.isCancelled;
-      if (req.body.morning.lockTime) updateData["morning.lockTime"] = new Date(req.body.morning.lockTime); // ✅ FIX
+      if (req.body.morning.lockTime) updateData["morning.lockTime"] = new Date(req.body.morning.lockTime); 
     }
 
     if (req.body.night) {
       if (req.body.night.manu) updateData["night.manu"] = req.body.night.manu;
       if (req.body.night.isCancelled !== undefined) updateData["night.isCancelled"] = req.body.night.isCancelled;
-      if (req.body.night.lockTime) updateData["night.lockTime"] = new Date(req.body.night.lockTime); // ✅ FIX
+      if (req.body.night.lockTime) updateData["night.lockTime"] = new Date(req.body.night.lockTime); 
     }
 
     const updatedMeal = await Meal.findByIdAndUpdate(
@@ -89,7 +172,6 @@ export const updateMeal = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
-
 
 // Get all planned meals (Sorted by date)
 export const getAllMeals = async (req, res) => {
@@ -119,7 +201,7 @@ export const getAllMeals = async (req, res) => {
     // 3. Secure Query: Filter by Hostel ID AND (Current Month OR Next Month)
     // Using a regex with an "OR" (|) operator to match either month suffix
     const meals = await Meal.find({
-      hostelId: userHostelId, // 🔒 Security: Only show meals for this user's hostel
+      hostelId: userHostelId, 
       date: {
         $regex: new RegExp(`(${currentMonth}|${nextMonth})$`)
       }
@@ -138,14 +220,10 @@ export const getAllMeals = async (req, res) => {
   }
 };
 
-
 /**
  * GET /api/meals/week
  */
-
-
 export const getWeeklyMeals = async (req, res) => {
-  console.log("Get Weekly Meal Is called");
   try {
     // 1. Fetch all meals for this hostel
     const allMeals = await Meal.find({
@@ -162,7 +240,7 @@ export const getWeeklyMeals = async (req, res) => {
       return mealDate.isSameOrAfter(today);
     });
 
-    // 4. Limit to 7 days of upcoming meals
+    // 4. Limit to 30 days of upcoming meals
     const meals = filteredMeals.slice(0, 30);
 
     if (!meals || meals.length === 0) {
@@ -178,31 +256,6 @@ export const getWeeklyMeals = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 /**
  * DELETE /api/meals/:id
@@ -238,7 +291,8 @@ export const cancelMeal = async (req, res) => {
 export const getTodayMeals = async (req, res) => {
   try {
     const today = new Date();
-    const todayStr = today.toLocaleDateString("en-GB"); // DD/MM/YYYY
+    // ✅ BUG FIX: Strictly format as DD/MM/YYYY so it never fails on cloud servers
+    const todayStr = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
 
     const meal = await Meal.findOne({
       hostelId: req.user.hostelId,
@@ -252,21 +306,11 @@ export const getTodayMeals = async (req, res) => {
   }
 };
 
-
-
 /// get meal status
-
-
-
 export const getMealStatus = async (req, res) => {
   try {
-    const { studentId } =  req.params; // From 
-    const hostelId = req.user.hostelId; // From authMiddleware
-
-    // Get current date boundaries for the current month
-    const now = new Date();
-    const currentMonth = (now.getMonth() + 1).toString().padStart(2, '0');
-    const currentYear = now.getFullYear().toString();
+    const { studentId } =  req.params; 
+    const hostelId = req.user.hostelId; 
 
     const result = await Meal.aggregate([
       // 1. Filter by Hostel

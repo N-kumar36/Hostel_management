@@ -9,7 +9,8 @@ import {
   getAllMeals,
   getTodayMeals, 
   getWeeklyMeals,
-  getMealStatus
+  getMealStatus,
+  autoGenerateMeals
 } from "../controllers/meal.controller.js";
 
 const router = Router();
@@ -23,6 +24,7 @@ router.patch("/Status/:studentId", protect, isApproved, getMealStatus);
 // We use checkPermission("mealEdit") to verify the specific right
 router.get("/all", protect, checkPermission("mealEdit"), getAllMeals);
 router.post("/create", protect, checkPermission("mealEdit"), createMeal);
+router.post("/auto-generate", protect, checkPermission("mealEdit"), autoGenerateMeals); // This route can be protected by a different permission if needed
 router.put("/update/:mealId", protect, checkPermission("mealEdit"), updateMeal);
 router.delete("/:id", protect, checkPermission("mealEdit"), cancelMeal);
 
