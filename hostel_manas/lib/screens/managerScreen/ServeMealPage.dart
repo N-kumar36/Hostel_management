@@ -79,36 +79,62 @@ class _ServeMealPageState extends State<ServeMealPage> {
     _onSearchChanged();
   }
 
-  Future<void> _handleServe(String? voteId, bool currentValue) async {
-    if (voteId == null || voteId.isEmpty || processingId != null) {
-      _showSnackBar("Invalid Vote ID", Colors.red);
+  Future<void> _handleServe(
+    String uniqueId,
+    bool currentValue,
+    Map<String, dynamic> studentData,
+  ) async {
+    if (uniqueId.isEmpty || processingId != null) {
+      _showSnackBar("Invalid ID", Colors.red);
       return;
     }
 
-    setState(() => processingId = voteId);
+    setState(() => processingId = uniqueId);
 
     try {
-      final res = await api.updateServeStatus(voteId);
+      // ✅ FIX: Use studentData instead of undefined 'vote' variable
+      final String? vId = studentData['voteId']?.toString();
+      final String sId = studentData['studentId']?.toString() ?? "";
+      String formattedDate = DateFormat('dd/MM/yyyy').format(selectedDate);
+
+      final res = await api.updateServeStatus(
+        vId,
+        sId,
+        formattedDate,
+        selectedTime,
+      );
 
       if (mounted) {
         if (res['success'] == true) {
           final bool serverStatus = res['isServed'] ?? !currentValue;
+          
+          // The backend should return the mealType that was resolved from the WeeklyRoutine
+          final String resolvedMealType = res['mealType'] ?? "Served";
 
           setState(() {
             final masterIndex = _allVotes.indexWhere(
-              (v) => v['voteId']?.toString() == voteId,
+              (v) =>
+                  (v['voteId']?.toString() == uniqueId) ||
+                  (v['studentId']?.toString() == uniqueId) ||
+                  (v['_id']?.toString() == uniqueId),
             );
 
             if (masterIndex != -1) {
               _allVotes[masterIndex]['isServed'] = serverStatus;
+
+              // If they hadn't voted and we just served them, update their choice in UI
+              if (serverStatus && (_allVotes[masterIndex]['choice'] == null || _allVotes[masterIndex]['choice'] == "")) {
+                _allVotes[masterIndex]['choice'] = resolvedMealType;
+              }
             }
 
             _sortAndFilterList();
             processingId = null;
           });
 
+          // Show the custom message from the backend (e.g. "Fine generated!")
           _showSnackBar(
-            serverStatus ? "Meal served!" : "Status updated",
+            res['message'] ?? (serverStatus ? "Meal served!" : "Status updated"),
             Colors.green,
           );
         } else {
@@ -130,7 +156,7 @@ class _ServeMealPageState extends State<ServeMealPage> {
       SnackBar(
         content: Text(message),
         backgroundColor: color,
-        duration: const Duration(seconds: 1),
+        duration: const Duration(seconds: 2), // Slightly longer so they can read fine notices
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -323,9 +349,18 @@ class _ServeMealPageState extends State<ServeMealPage> {
       padding: const EdgeInsets.only(bottom: 20),
       itemBuilder: (context, i) {
         final vote = _filteredVotes[i];
-        final String id = vote['voteId']?.toString() ?? "";
+
+        final String uniqueId =
+            vote['voteId']?.toString() ??
+            vote['studentId']?.toString() ??
+            vote['_id']?.toString() ??
+            "";
+
         final bool served = vote['isServed'] ?? false;
-        final bool isThisItemLoading = processingId == id;
+        final bool isThisItemLoading = processingId == uniqueId;
+
+        final String choiceStr = vote['choice']?.toString() ?? "";
+        final bool hasVoted = choiceStr.isNotEmpty;
 
         return Card(
           margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -365,12 +400,14 @@ class _ServeMealPageState extends State<ServeMealPage> {
               ),
             ),
             subtitle: Text(
-              "Choice: ${vote['choice']?.toUpperCase() ?? 'N/A'}",
+              hasVoted ? "Choice: ${choiceStr.toUpperCase()}" : "NOT VOTED",
               style: TextStyle(
-                color: served ? Colors.grey : Colors.orange.shade700,
+                color: served
+                    ? Colors.grey
+                    : (hasVoted ? Colors.orange.shade700 : Colors.red.shade600),
+                fontWeight: hasVoted ? FontWeight.normal : FontWeight.bold,
               ),
             ),
-            // ...existing code...
             trailing: isThisItemLoading
                 ? const Padding(
                     padding: EdgeInsets.all(8.0),
@@ -387,9 +424,8 @@ class _ServeMealPageState extends State<ServeMealPage> {
                     value: served,
                     activeThumbColor: Colors.green,
                     activeTrackColor: Colors.green.shade200,
-                    onChanged: (val) => _handleServe(id, served),
+                    onChanged: (val) => _handleServe(uniqueId, served, vote),
                   ),
-            // ...existing code...
           ),
         );
       },

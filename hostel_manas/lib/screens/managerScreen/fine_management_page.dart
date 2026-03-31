@@ -18,7 +18,8 @@ class _FineManagementPageState extends State<FineManagementPage> {
   List<dynamic> allStudents = [];
   List<dynamic> pendingPayments = [];
   String searchQuery = "";
-  String selectedMonth = DateFormat('MMMM yyyy').format(DateTime.now());
+  DateTime _selectedMonth = DateTime.now();
+  List<dynamic> monthlyBills = [];
 
   // --- MENU PRICE CONTROLLERS (Single Unit Prices for Fines) ---
   final TextEditingController _vegPriceController = TextEditingController(
@@ -69,9 +70,10 @@ class _FineManagementPageState extends State<FineManagementPage> {
     _fetchSavedPrices();
   }
 
+  // Make sure _loadInitialData() calls _loadBills() instead of _loadPendingFines()
   Future<void> _loadInitialData() async {
     setState(() => isLoading = true);
-    await Future.wait([_loadPendingFines(), _fetchAllStudents()]);
+    await Future.wait([_loadBills(), _fetchAllStudents()]);
     setState(() => isLoading = false);
   }
 
@@ -201,30 +203,23 @@ class _FineManagementPageState extends State<FineManagementPage> {
     }
   }
 
-  Future<void> _generateBulkFees() async {
-    bool confirm = await _showConfirmDialog(
-      "Confirm Calculation",
-      "This will generate fines for $selectedMonth based on consumption vs plan limits.",
-    );
-    if (!confirm) return;
-
-    setState(() => isLoading = true);
-    try {
-      await api.generateBulkFines({"month": selectedMonth});
-      _loadPendingFines();
-    } finally {
-      setState(() => isLoading = false);
-    }
-  }
-
   Future<void> _fetchAllStudents() async {
     final res = await api.getAllStudents();
     setState(() => allStudents = res ?? []);
   }
 
-  Future<void> _loadPendingFines() async {
-    final res = await api.getPendingFines();
-    setState(() => pendingPayments = res ?? []);
+  // Replace your old _loadPendingFines() with this:
+  Future<void> _loadBills() async {
+    setState(() => isLoading = true);
+
+    // Format the date to send to backend as "2026-03"
+    String formattedMonth = DateFormat('yyyy-MM').format(_selectedMonth);
+
+    final res = await api.getBillsByMonth(formattedMonth);
+    setState(() {
+      monthlyBills = res ?? [];
+      isLoading = false;
+    });
   }
 
   // --- UI TABS ---
@@ -260,20 +255,59 @@ class _FineManagementPageState extends State<FineManagementPage> {
   }
 
   Widget _buildBillsTab() {
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    return Column(
       children: [
-        _buildGenerationCard(),
-        const SizedBox(height: 20),
-        const Text(
-          "PENDING VERIFICATIONS",
-          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+        // --- MONTH SELECTOR UI ---
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          color: Colors.white,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.chevron_left, color: Colors.redAccent),
+                onPressed: () {
+                  setState(() {
+                    _selectedMonth = DateTime(
+                      _selectedMonth.year,
+                      _selectedMonth.month - 1,
+                      1,
+                    );
+                  });
+                  _loadBills();
+                },
+              ),
+              Text(
+                DateFormat('MMMM yyyy').format(_selectedMonth),
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.chevron_right, color: Colors.redAccent),
+                onPressed: () {
+                  setState(() {
+                    _selectedMonth = DateTime(
+                      _selectedMonth.year,
+                      _selectedMonth.month + 1,
+                      1,
+                    );
+                  });
+                  _loadBills();
+                },
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 10),
-        if (isLoading)
-          const Center(child: CircularProgressIndicator())
-        else
-          _buildPaymentList(),
+        const Divider(height: 1),
+
+        // --- BILLS LIST ---
+        Expanded(
+          child: isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _buildPaymentList(),
+        ),
       ],
     );
   }
@@ -548,49 +582,51 @@ class _FineManagementPageState extends State<FineManagementPage> {
     );
   }
 
-  Widget _buildGenerationCard() {
+  // --- Helper for Status Colors ---
+  Widget _buildStatusBadge(String status) {
+    Color color;
+    switch (status.toLowerCase()) {
+      case 'pending': color = Colors.orange; break;
+      case 'processing': color = Colors.blue; break;
+      case 'success': case 'approved': color = Colors.green; break;
+      case 'rejected': color = Colors.red; break;
+      default: color = Colors.grey;
+    }
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.redAccent, Colors.orangeAccent],
-        ),
-        borderRadius: BorderRadius.circular(15),
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.5)),
       ),
-      child: Column(
-        children: [
-          Text(
-            "GENERATE BILLS FOR $selectedMonth",
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 10),
-          ElevatedButton(
-            onPressed: _generateBulkFees,
-            child: const Text("RUN CALCULATION"),
-          ),
-        ],
+      child: Text(
+        status.toUpperCase(),
+        style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold),
       ),
     );
   }
 
+  // --- Updated List Widget ---
   Widget _buildPaymentList() {
-    if (pendingPayments.isEmpty) {
+    // 1. Check monthlyBills instead of pendingPayments
+    if (monthlyBills.isEmpty) {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(20.0),
-          child: Text("No pending verifications"),
+          child: Text("No bills found for this month"),
         ),
       );
     }
+    
     return Column(
-      children: pendingPayments.map((p) {
+      // 2. Map over monthlyBills instead of pendingPayments
+      children: monthlyBills.map((p) {
         final student = p['studentId'];
         final String? photoUrl = student != null ? student['photoURL'] : null;
+        final String status = p['status'] ?? 'pending';
 
         return Card(
+          margin: const EdgeInsets.only(bottom: 12, left: 16, right: 16),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(15),
           ),
@@ -607,7 +643,14 @@ class _FineManagementPageState extends State<FineManagementPage> {
               student?['name'] ?? "Unknown",
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
-            subtitle: Text("₹${p['amount']} - ${p['title']}"),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text("₹${p['amount']} - ${p['title']}"),
+                const SizedBox(height: 4),
+                _buildStatusBadge(status), // Added status badge here
+              ],
+            ),
             trailing: const Icon(Icons.chevron_right, color: Colors.redAccent),
             onTap: () {
               Navigator.push(
@@ -615,29 +658,12 @@ class _FineManagementPageState extends State<FineManagementPage> {
                 MaterialPageRoute(
                   builder: (context) => PaymentDetailScreen(payment: p),
                 ),
-              ).then((_) => _loadPendingFines());
+              ).then((_) => _loadBills()); // Refreshes the list when returning
             },
           ),
         );
       }).toList(),
     );
-  }
-
-  Future<bool> _showConfirmDialog(String t, String d) async {
-    return await showDialog(
-          context: context,
-          builder: (c) => AlertDialog(
-            title: Text(t),
-            content: Text(d),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(c, true),
-                child: const Text("PROCEED"),
-              ),
-            ],
-          ),
-        ) ??
-        false;
   }
 
   void _showIndividualFineDialog(dynamic student) {
@@ -728,7 +754,7 @@ class _FineManagementPageState extends State<FineManagementPage> {
 
                         if (success) {
                           Navigator.pop(context);
-                          _loadPendingFines(); // Refresh the list on the first tab
+                          _loadBills(); // Refresh the list on the first tab
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               content: Text("Fine created successfully!"),
@@ -768,4 +794,6 @@ class _FineManagementPageState extends State<FineManagementPage> {
       ),
     );
   }
+
+  
 }

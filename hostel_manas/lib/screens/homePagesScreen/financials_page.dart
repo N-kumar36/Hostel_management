@@ -80,11 +80,17 @@ class _FinancialsPageState extends State<FinancialsPage> {
     final amount = fee['amount'].toString();
     final status = fee['status']?.toString().toLowerCase() ?? 'pending';
 
-    Color statusColor = status == 'pending'
-        ? Colors.red
-        : status == 'processing'
-        ? Colors.orange
-        : Colors.green;
+    // ✅ FIXED: Explicitly handle colors for all statuses
+    Color statusColor;
+    if (status == 'pending') {
+      statusColor = Colors.orange; // Pending looks better as orange
+    } else if (status == 'processing') {
+      statusColor = Colors.blue; 
+    } else if (status == 'rejected') {
+      statusColor = Colors.red; // Rejected is explicitly red
+    } else {
+      statusColor = Colors.green; // Success/Approved
+    }
 
     String formattedDate = "";
     try {
@@ -162,27 +168,44 @@ class _FinancialsPageState extends State<FinancialsPage> {
                     ),
                   ),
                 ),
-                if (status == 'pending')
+                
+                // ✅ FIXED: Show button for 'pending' AND 'rejected'
+                if (status == 'pending' || status == 'rejected')
                   ElevatedButton(
                     onPressed: () => _showPaymentSheet(fee),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.deepPurple,
+                      backgroundColor: status == 'rejected' ? Colors.redAccent : Colors.deepPurple,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
                     ),
-                    child: const Text("PAY NOW"),
+                    // Change text if they are trying again
+                    child: Text(status == 'rejected' ? "TRY AGAIN" : "PAY NOW"),
                   )
                 else if (status == 'processing')
                   const Row(
                     children: [
-                      Icon(Icons.access_time, size: 16, color: Colors.orange),
+                      Icon(Icons.access_time, size: 16, color: Colors.blue),
                       SizedBox(width: 6),
                       Text(
                         "Verifying...",
                         style: TextStyle(
-                          color: Colors.orange,
+                          color: Colors.blue,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  )
+                else if (status == 'success' || status == 'approved')
+                   const Row(
+                    children: [
+                      Icon(Icons.check_circle, size: 16, color: Colors.green),
+                      SizedBox(width: 6),
+                      Text(
+                        "Paid",
+                        style: TextStyle(
+                          color: Colors.green,
                           fontWeight: FontWeight.w600,
                         ),
                       ),

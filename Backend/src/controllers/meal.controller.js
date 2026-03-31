@@ -1,7 +1,7 @@
 import moment from "moment"; 
 import Meal from "../models/Meal.js";
 import mongoose from 'mongoose';
-import Routine from "../models/WeeklyRoutine.js"; 
+import WeeklyRoutine from "../models/WeeklyRoutine.js"; 
 
 export const createMeal = async (req, res) => {
   try {
@@ -62,25 +62,48 @@ export const createMeal = async (req, res) => {
 // Auto Generate Meals based on Routine
 export const autoGenerateMeals = async (req, res) => {
   try {
-    const { startDate, days } = req.body; 
+    // ✨ FIX: Destructure the new lock times from the request body
+    const { startDate, endDate, morningLockTime, nightLockTime } = req.body; 
     const hostelId = req.user.hostelId;
 
+    if (!startDate || !endDate) {
+      return res.status(400).json({ success: false, message: "Start date and End date are required." });
+    }
+
+    // Parse the times (Fallback to 07:00 and 17:00 if not provided)
+    const mTime = morningLockTime || "07:00";
+    const nTime = nightLockTime || "17:00";
+    
+    const [mHour, mMin] = mTime.split(':').map(Number);
+    const [nHour, nMin] = nTime.split(':').map(Number);
+
     // 1. Get the routine for this hostel
-    const routineDoc = await Routine.findOne({ hostelId: hostelId });
+    const routineDoc = await WeeklyRoutine.findOne({ hostelId: hostelId });
     if (!routineDoc || !routineDoc.routine) {
       return res.status(400).json({ success: false, message: "Weekly routine is missing. Please set it first." });
     }
     const routine = routineDoc.routine;
 
-    // 2. Parse startDate
-    const [day, month, year] = startDate.split('/');
-    let currentDate = new Date(year, month - 1, day);
+    // 2. Parse startDate and endDate
+    const [sDay, sMonth, sYear] = startDate.split('/');
+    let currentDate = new Date(sYear, sMonth - 1, sDay);
+    
+    const [eDay, eMonth, eYear] = endDate.split('/');
+    let finalDate = new Date(eYear, eMonth - 1, eDay);
+
+    // Normalize hours to ensure accurate Date comparison loop
+    currentDate.setHours(0, 0, 0, 0);
+    finalDate.setHours(0, 0, 0, 0);
+
+    if (currentDate > finalDate) {
+      return res.status(400).json({ success: false, message: "Start date must be before or equal to End date." });
+    }
 
     let createdCount = 0;
     let activeCount = await Meal.countDocuments({ hostelId: hostelId });
 
-    // 3. Loop and create meals
-    for (let i = 0; i < days; i++) {
+    // 3. Loop and create meals UNTIL we pass the finalDate
+    while (currentDate <= finalDate) {
       const dateString = `${String(currentDate.getDate()).padStart(2, '0')}/${String(currentDate.getMonth() + 1).padStart(2, '0')}/${currentDate.getFullYear()}`;
       
       let dayOfWeek = currentDate.getDay();
@@ -94,19 +117,19 @@ export const autoGenerateMeals = async (req, res) => {
         
         if (!existingMeal) {
           
-          // ✅ FIX: Use Date.UTC to force exact 07:00:00 and 17:00:00 in MongoDB
+          // ✨ FIX: Apply the dynamically selected hours and minutes
           const morningLock = new Date(Date.UTC(
             currentDate.getFullYear(), 
             currentDate.getMonth(), 
             currentDate.getDate(), 
-            7, 0, 0
+            mHour, mMin, 0
           )); 
           
           const nightLock = new Date(Date.UTC(
             currentDate.getFullYear(), 
             currentDate.getMonth(), 
             currentDate.getDate(), 
-            17, 0, 0
+            nHour, nMin, 0
           )); 
 
           const nextMorningNum = (activeCount * 2 + 1).toString();
@@ -142,6 +165,7 @@ export const autoGenerateMeals = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
 
 export const updateMeal = async (req, res) => {
   try {

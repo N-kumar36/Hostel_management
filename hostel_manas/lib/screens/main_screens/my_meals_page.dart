@@ -63,7 +63,9 @@ class _MyVotesPageState extends State<MyVotesPage> {
       double dues = 0.0;
       if (fines != null) {
         for (var f in fines) {
-          if (f['status'] == 'pending') {
+          final status = f['status']?.toString().toLowerCase();
+          // ✅ FIXED: If a fine is 'pending' OR 'rejected', they still owe the money!
+          if (status == 'pending' || status == 'rejected') {
             dues += double.tryParse(f['amount'].toString()) ?? 0.0;
           }
         }
@@ -71,7 +73,7 @@ class _MyVotesPageState extends State<MyVotesPage> {
 
       if (mounted) {
         setState(() {
-          // --- FIX: Logic to handle multiple subscriptions (Completed vs Active) ---
+          // --- Logic to handle multiple subscriptions (Completed vs Active) ---
           if (subResponse['success'] == true &&
               (subResponse['data'] as List).isNotEmpty) {
             final List<dynamic> allSubs = subResponse['data'];
@@ -634,6 +636,7 @@ class _MyVotesPageState extends State<MyVotesPage> {
   }
 
   // --- HELPERS ---
+
   Widget _sectionHeader(String title) => Text(
     title,
     style: const TextStyle(
@@ -642,26 +645,72 @@ class _MyVotesPageState extends State<MyVotesPage> {
       color: Colors.black54,
     ),
   );
+
   Widget _buildEmptyStatus() => const Center(
     child: Text(
       "No requests",
       style: TextStyle(fontSize: 12, color: Colors.grey),
     ),
   );
+
+  // ✅ FIXED: Reused the consistent status badge component
+  Widget _buildStatusBadge(String status) {
+    Color color;
+    switch (status.toLowerCase()) {
+      case 'pending':
+        color = Colors.orange;
+        break;
+      case 'approved':
+      case 'success':
+        color = Colors.green;
+        break;
+      case 'rejected':
+        color = Colors.red;
+        break;
+      default:
+        color = Colors.grey;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.5)),
+      ),
+      child: Text(
+        status.toUpperCase(),
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+  // ✅ FIXED: UI for Guest Request List matches the clean look of the Financials pages
   Widget _buildGuestRequestsList() {
     return Column(
       children: guestRequests.map((req) {
-        Color statusColor = req['status'] == 'approved'
-            ? Colors.green
-            : (req['status'] == 'rejected' ? Colors.red : Colors.orange);
         return Card(
+          elevation: 0,
+          margin: const EdgeInsets.only(bottom: 10),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: Colors.grey.shade200),
+          ),
           child: ListTile(
-            title: Text("${req['guestCount']} Guests - ${req['mealTime']}"),
-            subtitle: Text(req['mealDate']),
-            trailing: Text(
-              req['status'].toUpperCase(),
-              style: TextStyle(color: statusColor, fontWeight: FontWeight.bold),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 4,
             ),
+            title: Text(
+              "${req['guestCount']} Guests - ${req['mealTime']}",
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: Text(req['mealDate']),
+            trailing: _buildStatusBadge(req['status'] ?? 'pending'),
           ),
         );
       }).toList(),
@@ -677,6 +726,7 @@ class _MyVotesPageState extends State<MyVotesPage> {
     onPressed: _showGuestMealBottomSheet,
     child: const Text("REQUEST GUEST MEAL"),
   );
+
   Widget _buildBlockedGuestAction() => Container(
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(

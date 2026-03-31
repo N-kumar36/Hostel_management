@@ -5,11 +5,13 @@ const dayMealSchema = new mongoose.Schema(
     morning: {
       type: String,
       enum: ["veg", "egg", "paneer", "chicken", "fish", "mutton"],
+      default: "veg",
       required: true,
     },
     night: {
       type: String,
       enum: ["veg", "egg", "paneer", "chicken", "fish", "mutton"],
+      default: "veg",
       required: true,
     },
   },

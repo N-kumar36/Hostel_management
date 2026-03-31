@@ -88,7 +88,9 @@ class _HomepageState extends State<Homepage> {
       if (fines != null) {
         for (var fine in fines) {
           String status = fine['status'].toString().toLowerCase();
-          if (status == 'pending') {
+          
+          // ✅ FIXED: Add 'rejected' to the pending sum so they still see they owe money
+          if (status == 'pending' || status == 'rejected') {
             totalPending += double.tryParse(fine['amount'].toString()) ?? 0.0;
           } else if (status == 'processing') {
             processingFound = true;

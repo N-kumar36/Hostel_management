@@ -13,6 +13,6 @@ router.get("/history", protect, getVoteHistory);
 // manager access
 router.get("/get-votes", protect, getVotesByDateAndSlot);
 router.post("/check-status", protect, checkUserVotesForWeek);
-router.put("/serve", protect, toggleServeStatus);
+router.post("/serve", protect, toggleServeStatus);
 
 export default router;

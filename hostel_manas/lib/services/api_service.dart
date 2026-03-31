@@ -11,6 +11,7 @@ class ApiService {
   // final String baseUrl = "https://hostel-management-3e61.onrender.com/api";
   final String baseUrl = "http://192.168.0.39:5000/api";
   // final String baseUrl = "http://192.168.18.253:5000/api";
+  // final String baseUrl = "https://hostel-management-rouge-six.vercel.app/api";
 
   // Helper to get headers with Bearer token
   Future<Map<String, String>> _getHeaders() async {
@@ -213,11 +214,8 @@ class ApiService {
 
   Future<Map<String, dynamic>> getVoteSummary() async {
     try {
-
       final response = await http.get(
-        Uri.parse(
-          '$baseUrl/meal-plan/getAllSubscriptions',
-        ),
+        Uri.parse('$baseUrl/meal-plan/getAllSubscriptions'),
         headers: await _getHeaders(),
       );
 
@@ -779,6 +777,20 @@ class ApiService {
     }
   }
 
+  // automatically serve meal
+  Future<dynamic> autoGenerateMeals(Map<String, dynamic> data) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/meals/auto-generate'),
+        headers: await _getHeaders(),
+        body: jsonEncode(data),
+      );
+      return jsonDecode(response.body);
+    } catch (e) {
+      throw Exception("Failed to auto generate meals");
+    }
+  }
+
   // get Detail Vote
   Future<Map<String, dynamic>> getDetailedVotesByDate(
     String mealDate,
@@ -815,27 +827,29 @@ class ApiService {
   }
 
   // Serve meal
-  Future<Map<String, dynamic>> updateServeStatus(String voteId) async {
-    try {
-      final response = await http.put(
-        Uri.parse('$baseUrl/vote/serve'),
-        headers: await _getHeaders(),
-        body: jsonEncode({"voteId": voteId}),
-      );
+  Future<Map<String, dynamic>> updateServeStatus(
+    String? voteId,
+    String studentId,
+    String mealDate,
+    String timeSlot,
+  ) async {
+    final response = await http.post(
+      Uri.parse(
+        '$baseUrl/vote/serve',
+      ), // Update to your actual endpoint route
+      headers: await _getHeaders(),
+      body: jsonEncode({
+        "voteId": voteId, // Will be null if they didn't vote
+        "studentId": studentId,
+        "mealDate": mealDate, // Format: "DD/MM/YYYY"
+        "timeSlot": timeSlot, // "morning" or "night"
+      }),
+    );
 
-      if (response.statusCode == 200) {
-        return json.decode(response.body);
-      } else {
-        final errorData = json.decode(response.body);
-        throw Exception(
-          errorData['message'] ?? 'Failed to update serve status',
-        );
-      }
-    } catch (e) {
-      print("Update Serve Error: $e");
-      rethrow;
-    }
+    return jsonDecode(response.body);
   }
+
+
 
   // ------------------- gguest meal page apis
   // get guest meal
@@ -885,11 +899,12 @@ class ApiService {
 
   /// fine management
 
-  // 1. Fetch all pending payment verifications
-  Future<List<dynamic>> getPendingFines() async {
+  // 1. Update the fetch method to accept the month string
+  Future<List<dynamic>> getBillsByMonth(String month) async {
     try {
+      // Passes the month parameter e.g., ?month=2026-03
       final response = await http.get(
-        Uri.parse("$baseUrl/fines/pending"),
+        Uri.parse("$baseUrl/fines/pending?month=$month"),
         headers: await _getHeaders(),
       );
       if (response.statusCode == 200) {
@@ -897,36 +912,24 @@ class ApiService {
       }
       return [];
     } catch (e) {
+      debugPrint("Error fetching bills: $e");
       return [];
     }
   }
 
-  // 2. Generate Bills for everyone in the hostel
-  Future<Map<String, dynamic>> generateBulkFines(
-    Map<String, String> data,
-  ) async {
-    try {
-      final response = await http.post(
-        Uri.parse("$baseUrl/fines/generate-bulk"),
-        headers: await _getHeaders(),
-        body: json.encode(data),
-      );
-      return json.decode(response.body);
-    } catch (e) {
-      return {"success": false, "message": e.toString()};
-    }
-  }
-
-  // 3. Mark a specific student's fine as PAID
-  Future<bool> verifyPayment(String fineId) async {
+  // 2. Add a new method to approve/reject the bill
+  Future<bool> updateBillStatus(String billId, String status) async {
     try {
       final response = await http.put(
-        Uri.parse("$baseUrl/fines/verify/$fineId"),
+        Uri.parse(
+          "$baseUrl/fines/$billId/status",
+        ), // Make sure you create this backend route
         headers: await _getHeaders(),
-        body: json.encode({"status": "paid"}),
+        body: json.encode({"status": status}),
       );
       return response.statusCode == 200;
     } catch (e) {
+      debugPrint("Error updating status: $e");
       return false;
     }
   }

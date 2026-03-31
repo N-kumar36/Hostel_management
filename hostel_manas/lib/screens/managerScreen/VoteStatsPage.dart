@@ -14,7 +14,7 @@ class _VoteStatusSelectionPageState extends State<VoteStatusSelectionPage> {
   String selectedTime = "Morning";
   final api = ApiService();
   bool isLoading = false;
-  bool isActionLoading = false; // For the "Mark Served" action
+  bool isActionLoading = false; 
 
   List<dynamic> studentVotes = [];
   int totalGuestPlates = 0;
@@ -36,7 +36,15 @@ class _VoteStatusSelectionPageState extends State<VoteStatusSelectionPage> {
       final response = await api.getDetailedVotesByDate(formattedDate, selectedTime);
       if (mounted) {
         setState(() {
-          studentVotes = response['data'] ?? [];
+          // The backend sends everyone. We filter it to ONLY show those who voted.
+          // We assume a user has voted if their 'choice' string is not empty.
+          final allData = response['data'] ?? [];
+          
+          studentVotes = allData.where((item) {
+             final choice = item['choice']?.toString() ?? "";
+             return choice.isNotEmpty; 
+          }).toList();
+
           totalGuestPlates = studentVotes.where((item) => item['isGuest'] == true).length;
           totalStudentVotes = studentVotes.where((item) => item['isGuest'] == false).length;
           isLoading = false;
@@ -50,19 +58,48 @@ class _VoteStatusSelectionPageState extends State<VoteStatusSelectionPage> {
     }
   }
 
-  //  New: Mark individual entries (Student or Guest) as served
-  Future<void> _markAsServed(String voteId) async {
+  Future<void> _markAsServed(String uniqueId, Map<String, dynamic> item) async {
     setState(() => isActionLoading = true);
+    
     try {
-      final result = await api.updateServeStatus(voteId);
-      if (result == true) {
-        _showSnackBar("Meal served successfully!", Colors.green);
-        _fetchVotes(); // Refresh list to show checkmark
+      final String? vId = item['voteId']?.toString();
+      final String sId = item['studentId']?.toString() ?? "";
+      String formattedDate = DateFormat('dd/MM/yyyy').format(selectedDate);
+
+      final res = await api.updateServeStatus(vId, sId, formattedDate, selectedTime);
+
+      if (mounted) {
+        if (res['success'] == true) {
+          final String resolvedMealType = res['mealType'] ?? "Served";
+
+          setState(() {
+            final masterIndex = studentVotes.indexWhere((v) =>
+                (v['voteId']?.toString() == uniqueId) ||
+                (v['studentId']?.toString() == uniqueId) ||
+                (v['_id']?.toString() == uniqueId));
+
+            if (masterIndex != -1) {
+              studentVotes[masterIndex]['isServed'] = true; 
+
+              if (studentVotes[masterIndex]['choice'] == null || studentVotes[masterIndex]['choice'] == "") {
+                studentVotes[masterIndex]['choice'] = resolvedMealType;
+              }
+            }
+          });
+
+          _showSnackBar(res['message'] ?? "Meal served successfully!", Colors.green);
+        } else {
+          _showSnackBar(res['message'] ?? "Failed to serve", Colors.red);
+        }
       }
     } catch (e) {
-      _showSnackBar("Failed to serve: $e", Colors.red);
+      if (mounted) {
+        _showSnackBar("Failed to serve: $e", Colors.red);
+      }
     } finally {
-      setState(() => isActionLoading = false);
+      if (mounted) {
+        setState(() => isActionLoading = false);
+      }
     }
   }
 
@@ -100,7 +137,6 @@ class _VoteStatusSelectionPageState extends State<VoteStatusSelectionPage> {
             ],
           ),
         ),
-        // Loading overlay for mark served action
         if (isActionLoading)
           Container(
             color: Colors.black26,
@@ -203,8 +239,16 @@ class _VoteStatusSelectionPageState extends State<VoteStatusSelectionPage> {
       padding: const EdgeInsets.all(12),
       itemBuilder: (context, index) {
         final item = studentVotes[index];
+        
+        final String uniqueId = item['voteId']?.toString() ??
+            item['studentId']?.toString() ??
+            item['_id']?.toString() ??
+            "";
+
         final bool isGuest = item['isGuest'] ?? false;
         final bool isServed = item['isServed'] ?? false;
+
+        final String choiceStr = item['choice']?.toString() ?? "";
 
         return Card(
           elevation: 0,
@@ -250,8 +294,12 @@ class _VoteStatusSelectionPageState extends State<VoteStatusSelectionPage> {
                   style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
                 ),
                 Text(
-                  "Choice: ${item['choice']}",
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.deepPurple.shade300),
+                  "Choice: ${choiceStr.toUpperCase()}",
+                  style: TextStyle(
+                    fontSize: 11, 
+                    fontWeight: FontWeight.bold, 
+                    color: Colors.deepPurple.shade300 
+                  ),
                 ),
               ],
             ),
@@ -265,7 +313,7 @@ class _VoteStatusSelectionPageState extends State<VoteStatusSelectionPage> {
                 )
               : IconButton(
                   icon: Icon(Icons.radio_button_unchecked, color: Colors.grey.shade400),
-                  onPressed: () => _markAsServed(item['voteId']),
+                  onPressed: () => _markAsServed(uniqueId, item),
                 ),
           ),
         );
