@@ -8,6 +8,8 @@ import FinePrice from "../models/FinePrice.js";
 import User from "../models/User.js";
 import WeeklyRoutine from "../models/WeeklyRoutine.js";
 
+import Notification from "../models/Notification.js";
+
 
 
 
@@ -448,6 +450,177 @@ export const getVotesByDateAndSlot = async (req, res) => {
 // };
 
 
+// export const toggleServeStatus = async (req, res) => {
+//   try {
+//     const { voteId, studentId, mealDate, timeSlot } = req.body;
+
+//     let vote = null;
+//     let isNewVote = false;
+//     let mealIdToUse = null;
+
+//     console.log("voteId", voteId, "studentId", studentId, "mealDate", mealDate, "timeSlot", timeSlot);
+
+//     // 1. Try to find the existing vote
+//     if (voteId) {
+//       vote = await Vote.findById(voteId).populate("mealId");
+//     }
+
+//     let isNowServed;
+//     let currentMealType;
+//     let currentUserId;
+//     let currentHostelId;
+//     let currentMealDateObj;
+
+//     // 2. If no vote exists, we are serving a "Walk-in" (Unvoted Student)
+//     if (!vote) {
+//       if (!studentId || !mealDate || !timeSlot) {
+//         return res.status(400).json({ success: false, message: "Missing required fields to serve unvoted student." });
+//       }
+
+//       const user = await User.findById(studentId);
+//       if (!user) return res.status(404).json({ success: false, message: "Student not found" });
+
+//       currentHostelId = user.hostelId;
+//       currentUserId = user._id;
+
+//       const meal = await Meal.findOne({ date: mealDate, hostelId: currentHostelId });
+//       if (!meal) return res.status(404).json({ success: false, message: "Meal not found for this date" });
+//       mealIdToUse = meal._id;
+
+//       // Determine Meal Type from Weekly Routine using NUMBER keys (1-7)
+//       currentMealDateObj = moment(mealDate, "DD/MM/YYYY");
+//       const dayOfWeekNumString = currentMealDateObj.isoWeekday().toString();
+
+//       console.log("Mapped Day of Week Key:", dayOfWeekNumString);
+
+//       const weeklyRoutine = await WeeklyRoutine.findOne({ hostelId: currentHostelId });
+
+//       // Check if the routine exists and has the numerical key
+//       if (!weeklyRoutine || !weeklyRoutine.routine.has(dayOfWeekNumString)) {
+//         return res.status(404).json({ success: false, message: "Weekly routine not found to determine meal type" });
+//       }
+
+//       // Grab the specific meal type (veg, egg, etc.) for this exact day and time slot
+//       const dayMeals = weeklyRoutine.routine.get(dayOfWeekNumString);
+//       currentMealType = dayMeals[timeSlot.toLowerCase()];
+
+//       if (!currentMealType) {
+//         return res.status(400).json({ success: false, message: "Meal type not defined in routine for this slot" });
+//       }
+
+//       isNewVote = true;
+//       isNowServed = true; // Serving an unvoted student implies we are turning the switch ON
+//     } else {
+//       // It's an existing vote, extract variables normally
+//       currentMealType = vote.mealType.toLowerCase();
+//       currentUserId = vote.userId;
+//       currentHostelId = vote.hostelId;
+//       currentMealDateObj = moment(vote.mealId.date, "DD/MM/YYYY");
+//       isNowServed = !vote.isServed; // Toggle it
+//     }
+
+//     // 3. Find Subscription (Allow both active and completed) - REMOVED MONTH LOGIC
+//     const subscription = await StudentSubscription.findOne({
+//       studentId: currentUserId,
+//       status: { $in: ["active", "completed"] }
+//     }).sort({ createdAt: -1 });
+
+//     if (!subscription && (!vote || !vote.isGuest)) {
+//       return res.status(400).json({ success: false, message: "No active plan found for this student" });
+//     }
+
+//     // --- AUTO FINE LOGIC ---
+//     let fineGenerated = false;
+//     if (isNowServed && (!vote || !vote.isGuest)) {
+//       const currentUsage = subscription.usage[currentMealType] || 0;
+//       const maxAllowed = subscription.maxLimits[currentMealType] || 0;
+
+//       // Check if this meal is EXTRA
+//       if (currentUsage >= maxAllowed) {
+//         const priceList = await FinePrice.findOne({ hostelId: currentHostelId });
+//         const fineAmount = priceList ? priceList.prices[currentMealType] : 50;
+
+//         const manager = await User.findOne({ hostelId: currentHostelId, role: "manager" });
+
+//         await Fine.create({
+//           studentId: currentUserId,
+//           managerId: manager ? manager._id : currentUserId,
+//           hostelId: currentHostelId,
+//           title: `Extra Meal Charge - ${currentMealType.toUpperCase()}`,
+//           amount: fineAmount,
+//           description: `Automatically generated: Limit for ${currentMealType} was ${maxAllowed}. Student is consuming an extra plate.`,
+//           status: "pending",
+//           date: new Date()
+//         });
+
+//         fineGenerated = true;
+//       }
+//     }
+
+//     // 4. Update Subscription Usage
+//     let updatedSubscriptionId = null;
+
+//     if ((!vote || !vote.isGuest) && subscription) {
+//       const incValue = isNowServed ? 1 : -1;
+//       const updateKey = `usage.${currentMealType}`;
+
+//       if (!(!isNowServed && subscription.usage[currentMealType] <= 0)) {
+//         const updatedSub = await StudentSubscription.findByIdAndUpdate(
+//           subscription._id,
+//           { $inc: { [updateKey]: incValue } },
+//           { new: true }
+//         );
+//         updatedSubscriptionId = updatedSub._id;
+//       }
+//     }
+
+//     // 5. Create OR Update the Vote
+//     if (isNewVote) {
+//       vote = new Vote({
+//         userId: currentUserId,
+//         hostelId: currentHostelId,
+//         mealId: mealIdToUse,
+//         timeSlot: timeSlot.toLowerCase(),
+//         mealType: currentMealType,
+//         isGuest: false,
+//         isServed: true,
+//         servedAt: new Date(),
+//         votedAt: new Date() // Treat the walk-in time as their voted time
+//       });
+//       await vote.save();
+//     } else {
+//       vote.isServed = isNowServed;
+//       vote.servedAt = isNowServed ? new Date() : null;
+//       await vote.save();
+//     }
+
+//     // 6. Run the auto-completion check!
+//     if (updatedSubscriptionId) {
+//       // Ensure consumptionOverviewCheck is imported and available in this scope
+//       if (typeof consumptionOverviewCheck === 'function') {
+//         await consumptionOverviewCheck(updatedSubscriptionId);
+//       } else {
+//         console.warn("consumptionOverviewCheck function is missing or not imported.");
+//       }
+//     }
+
+//     res.json({
+//       success: true,
+//       message: isNowServed
+//         ? (fineGenerated
+//           ? `Extra ${currentMealType} served. Fine generated!`
+//           : `Marked ${currentMealType} as served`)
+//         : "Service undone",
+//       isServed: vote.isServed,
+//       mealType: currentMealType 
+//     });
+
+//   } catch (error) {
+//     console.error("Toggle Serve Error:", error);
+//     res.status(500).json({ success: false, message: error.message });
+//   }
+// };
+
 export const toggleServeStatus = async (req, res) => {
   try {
     const { voteId, studentId, mealDate, timeSlot } = req.body;
@@ -489,16 +662,12 @@ export const toggleServeStatus = async (req, res) => {
       currentMealDateObj = moment(mealDate, "DD/MM/YYYY");
       const dayOfWeekNumString = currentMealDateObj.isoWeekday().toString();
 
-      console.log("Mapped Day of Week Key:", dayOfWeekNumString);
-
       const weeklyRoutine = await WeeklyRoutine.findOne({ hostelId: currentHostelId });
 
-      // Check if the routine exists and has the numerical key
       if (!weeklyRoutine || !weeklyRoutine.routine.has(dayOfWeekNumString)) {
         return res.status(404).json({ success: false, message: "Weekly routine not found to determine meal type" });
       }
 
-      // Grab the specific meal type (veg, egg, etc.) for this exact day and time slot
       const dayMeals = weeklyRoutine.routine.get(dayOfWeekNumString);
       currentMealType = dayMeals[timeSlot.toLowerCase()];
 
@@ -507,17 +676,16 @@ export const toggleServeStatus = async (req, res) => {
       }
 
       isNewVote = true;
-      isNowServed = true; // Serving an unvoted student implies we are turning the switch ON
+      isNowServed = true;
     } else {
-      // It's an existing vote, extract variables normally
       currentMealType = vote.mealType.toLowerCase();
       currentUserId = vote.userId;
       currentHostelId = vote.hostelId;
       currentMealDateObj = moment(vote.mealId.date, "DD/MM/YYYY");
-      isNowServed = !vote.isServed; // Toggle it
+      isNowServed = !vote.isServed;
     }
 
-    // 3. Find Subscription (Allow both active and completed) - REMOVED MONTH LOGIC
+    // 3. Find Subscription
     const subscription = await StudentSubscription.findOne({
       studentId: currentUserId,
       status: { $in: ["active", "completed"] }
@@ -533,7 +701,6 @@ export const toggleServeStatus = async (req, res) => {
       const currentUsage = subscription.usage[currentMealType] || 0;
       const maxAllowed = subscription.maxLimits[currentMealType] || 0;
 
-      // Check if this meal is EXTRA
       if (currentUsage >= maxAllowed) {
         const priceList = await FinePrice.findOne({ hostelId: currentHostelId });
         const fineAmount = priceList ? priceList.prices[currentMealType] : 50;
@@ -583,7 +750,7 @@ export const toggleServeStatus = async (req, res) => {
         isGuest: false,
         isServed: true,
         servedAt: new Date(),
-        votedAt: new Date() // Treat the walk-in time as their voted time
+        votedAt: new Date()
       });
       await vote.save();
     } else {
@@ -594,7 +761,6 @@ export const toggleServeStatus = async (req, res) => {
 
     // 6. Run the auto-completion check!
     if (updatedSubscriptionId) {
-      // Ensure consumptionOverviewCheck is imported and available in this scope
       if (typeof consumptionOverviewCheck === 'function') {
         await consumptionOverviewCheck(updatedSubscriptionId);
       } else {
@@ -602,6 +768,30 @@ export const toggleServeStatus = async (req, res) => {
       }
     }
 
+    // ✨ 7. NEW: Generate the In-App Notification
+    try {
+      if (isNowServed && (!vote || !vote.isGuest)) {
+        let notifMessage = `You have consumed your ${timeSlot.toLowerCase()} meal: ${currentMealType.toUpperCase()}.`;
+
+        if (fineGenerated) {
+          notifMessage += ` Note: You exceeded your plan limit. An extra meal fine has been generated.`;
+        }
+
+        await Notification.create({
+          userId: currentUserId,
+          hostelId: currentHostelId,
+          title: fineGenerated ? "Extra Meal Served" : "Meal Served",
+          message: notifMessage,
+          type: "served"
+        });
+      }
+    } catch (notifErr) {
+      // We wrap this in a try-catch so that if the notification fails, 
+      // the meal is still successfully served without crashing the app.
+      console.error("Failed to create notification:", notifErr.message);
+    }
+
+    // Return final response
     res.json({
       success: true,
       message: isNowServed
@@ -610,7 +800,7 @@ export const toggleServeStatus = async (req, res) => {
           : `Marked ${currentMealType} as served`)
         : "Service undone",
       isServed: vote.isServed,
-      mealType: currentMealType 
+      mealType: currentMealType
     });
 
   } catch (error) {

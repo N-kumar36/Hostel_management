@@ -15,6 +15,7 @@ import guestMealRoutes from "./routes/guestMeal.routes.js";
 import userRouter from "./routes/user.route.js";
 import upiRoute from "./routes/upi.route.js"
 import MealPlanRouter from "./routes/mealPlan.route.js";
+import notificationRoutes from "./routes/notification.routes.js";
 
 
 
@@ -40,6 +41,7 @@ app.use("/api/fines", FineRoute);
 app.use("/api/guest-meals", guestMealRoutes);
 app.use("/api/upi", upiRoute);
 app.use("/api/meal-plan", MealPlanRouter);
+app.use("/api/notifications", notificationRoutes);
 
 
 

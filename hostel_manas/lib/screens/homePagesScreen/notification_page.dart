@@ -1,43 +1,61 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:HostelMess/services/api_service.dart'; // Adjust path if needed
 
-class NotificationPage extends StatelessWidget {
+class NotificationPage extends StatefulWidget {
   const NotificationPage({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    // Mock notification data
-    final List<Map<String, dynamic>> notifications = [
-      {
-        "title": "Vote for Dinner!",
-        "message": "Today's dinner menu has been set. Don't forget to cast your vote before 6:30 PM.",
-        "time": DateTime.now().subtract(const Duration(minutes: 30)),
-        "type": "vote",
-        "isRead": false,
-      },
-      {
-        "title": "Payment Successful",
-        "message": "Your mess fee of ₹2500 for March has been successfully recorded.",
-        "time": DateTime.now().subtract(const Duration(hours: 2)),
-        "type": "payment",
-        "isRead": true,
-      },
-      {
-        "title": "Meal Served",
-        "message": "You have consumed your morning meal: Egg Curry & Rice.",
-        "time": DateTime.now().subtract(const Duration(hours: 8)),
-        "type": "served",
-        "isRead": true,
-      },
-      {
-        "title": "New Notice",
-        "message": "Hostel cleaning schedule for the upcoming weekend has been posted.",
-        "time": DateTime.now().subtract(const Duration(days: 1)),
-        "type": "notice",
-        "isRead": true,
-      },
-    ];
+  State<NotificationPage> createState() => _NotificationPageState();
+}
 
+class _NotificationPageState extends State<NotificationPage> {
+  final api = ApiService();
+  bool isLoading = true;
+  List<dynamic> notifications = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchNotifications();
+  }
+
+  Future<void> _fetchNotifications() async {
+    setState(() => isLoading = true);
+    try {
+      final res = await api.getNotifications();
+      if (mounted && res['success'] == true) {
+        setState(() {
+          notifications = res['data'] ?? [];
+        });
+      }
+    } catch (e) {
+      debugPrint("Error fetching notifications: $e");
+    } finally {
+      if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  Future<void> _markAllAsRead() async {
+    // Optimistic UI update: instantly make them read on screen
+    setState(() {
+      for (var note in notifications) {
+        note['isRead'] = true;
+      }
+    });
+
+    // Send request to backend
+    final success = await api.markAllNotificationsRead();
+    if (!success && mounted) {
+      // If it fails, you might want to show a snackbar or refresh
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Failed to update notifications server")),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
@@ -46,23 +64,30 @@ class NotificationPage extends StatelessWidget {
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
-          TextButton(
-            onPressed: () {}, // Logic to mark all as read
-            child: const Text("Mark all read", style: TextStyle(color: Colors.white70, fontSize: 12)),
-          )
+          // Only show "Mark all read" if there are actual unread notifications
+          if (notifications.any((n) => n['isRead'] == false))
+            TextButton(
+              onPressed: _markAllAsRead,
+              child: const Text("Mark all read", style: TextStyle(color: Colors.white70, fontSize: 12)),
+            )
         ],
       ),
-      body: notifications.isEmpty
-          ? _buildEmptyState()
-          : ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemCount: notifications.length,
-              separatorBuilder: (context, index) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final item = notifications[index];
-                return _buildNotificationCard(item);
-              },
-            ),
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator(color: Colors.deepPurple))
+          : notifications.isEmpty
+              ? _buildEmptyState()
+              : RefreshIndicator(
+                  onRefresh: _fetchNotifications,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: notifications.length,
+                    separatorBuilder: (context, index) => const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final item = notifications[index];
+                      return _buildNotificationCard(item);
+                    },
+                  ),
+                ),
     );
   }
 
@@ -70,7 +95,7 @@ class NotificationPage extends StatelessWidget {
     IconData icon;
     Color color;
 
-    // Assign icons based on type
+    // Assign icons based on type from Database
     switch (item['type']) {
       case 'vote':
         icon = Icons.how_to_vote;
@@ -89,11 +114,21 @@ class NotificationPage extends StatelessWidget {
         color = Colors.deepPurple;
     }
 
+    final bool isRead = item['isRead'] ?? false;
+    
+    // Safely parse the MongoDB date string
+    DateTime time;
+    try {
+      time = DateTime.parse(item['createdAt']).toLocal();
+    } catch (e) {
+      time = DateTime.now();
+    }
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(15),
-        border: item['isRead'] ? null : Border.all(color: Colors.deepPurple.shade100, width: 1.5),
+        border: isRead ? null : Border.all(color: Colors.deepPurple.shade100, width: 1.5),
         boxShadow: [
           BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
         ],
@@ -109,9 +144,9 @@ class NotificationPage extends StatelessWidget {
           child: Icon(icon, color: color, size: 24),
         ),
         title: Text(
-          item['title'],
+          item['title'] ?? "Notification",
           style: TextStyle(
-            fontWeight: item['isRead'] ? FontWeight.w600 : FontWeight.bold,
+            fontWeight: isRead ? FontWeight.w600 : FontWeight.bold,
             fontSize: 15,
           ),
         ),
@@ -120,12 +155,12 @@ class NotificationPage extends StatelessWidget {
           children: [
             const SizedBox(height: 4),
             Text(
-              item['message'],
+              item['message'] ?? "",
               style: TextStyle(color: Colors.grey[600], fontSize: 13),
             ),
             const SizedBox(height: 8),
             Text(
-              DateFormat('dd MMM, hh:mm a').format(item['time']),
+              DateFormat('dd MMM, hh:mm a').format(time),
               style: const TextStyle(color: Colors.grey, fontSize: 11),
             ),
           ],

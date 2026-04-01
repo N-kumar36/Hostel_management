@@ -6,6 +6,8 @@ import Vote from '../models/Vote.js';
 import FinePrice from '../models/FinePrice.js'
 import UpiDetail from '../models/UpiDetail.js'
 import MealPlan from '../models/MealPlan.js'
+import GuestMeal from "../models/guestMeal.model.js"; // Replace with your exact model import
+
 
 
 export const assignManager = async (req, res) => {
@@ -238,6 +240,34 @@ export const getStudentSummary = async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+
+export const getDashboardCounts = async (req, res) => {
+  try {
+    // Assuming the manager is authenticated and you have their hostelId
+    const hostelId = req.user.hostelId; 
+
+    // Use Promise.all to run both queries concurrently for maximum speed
+    const [pendingStudents, pendingGuests] = await Promise.all([
+      // Count users in this hostel whose status is "pending"
+      User.countDocuments({ hostelId: hostelId, pending: "pending" }),
+      
+      // Count guest meals in this hostel whose status is "pending"
+      // Note: Adjust the { status: "pending" } check to match your exact GuestMeal schema
+      GuestMeal.countDocuments({ hostelId: hostelId, status: "pending" }) 
+    ]);
+
+    res.status(200).json({
+      success: true,
+      pendingStudents: pendingStudents,
+      pendingGuests: pendingGuests
+    });
+
+  } catch (error) {
+    console.error("Dashboard Counts Error:", error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 

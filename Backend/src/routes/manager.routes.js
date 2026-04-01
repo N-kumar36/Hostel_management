@@ -9,7 +9,8 @@ import {
     getAllHostelStudent,
     getStudentSummary,
     saveSattingData,
-    getSattingData
+    getSattingData,
+    getDashboardCounts
 } from "../controllers/manager.controller.js";
 import { upsertWeeklyRoutine, getWeeklyRoutine } from "../controllers/WeeklyRoutine.controller.js";
 
@@ -22,6 +23,8 @@ router.get("/current", protect, getCurrentManager);
 
 // manager manage
 
+router.get("/pending", protect, pendingStudent);
+router.get("/dashboard-counts", protect, getDashboardCounts);
 router.get("/pending", protect, pendingStudent);
 router.patch("/approve/:id", protect, pendingApprove);
 router.patch("/reject/:id", protect, pendingReject);

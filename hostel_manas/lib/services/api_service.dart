@@ -557,7 +557,66 @@ class ApiService {
     return json.decode(response.body);
   }
 
+
+// Inside your api_service.dart
+  Future<Map<String, dynamic>> getAllPaymentHistory() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/user/all-payment-history'), // Check your exact route path
+        headers: await _getHeaders(),
+      );
+      return jsonDecode(response.body);
+    } catch (e) {
+      throw Exception("Failed to load payment history");
+    }
+  }
+ 
+ Future<Map<String, dynamic>> getNotifications() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/notifications'), // Update with your route
+        headers: await _getHeaders(),
+      );
+      return jsonDecode(response.body);
+    } catch (e) {
+      throw Exception("Failed to load notifications");
+    }
+  }
+
+  Future<bool> markAllNotificationsRead() async {
+    try {
+      final response = await http.put(
+        Uri.parse('$baseUrl/notifications/mark-all-as-read'), // Update with your route
+        headers: await _getHeaders(),
+      );
+      final decoded = jsonDecode(response.body);
+      return decoded['success'] == true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   // =====================  MANAGER ACCESS CONTROL ===================================//
+
+  Future<Map<String, dynamic>> getDashboardCounts() async {
+    try {
+      // Replace with your actual route URL
+      final response = await http.get(
+        Uri.parse('$baseUrl/managers/dashboard-counts'),
+        headers:
+            await _getHeaders(), // Assuming you have a method attaching auth tokens
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        throw Exception("Failed to fetch dashboard counts");
+      }
+    } catch (e) {
+      throw Exception("API Error: $e");
+    }
+  }
+
   // pending Student
   Future<List<dynamic>> getPendingStudent() async {
     try {
@@ -834,9 +893,7 @@ class ApiService {
     String timeSlot,
   ) async {
     final response = await http.post(
-      Uri.parse(
-        '$baseUrl/vote/serve',
-      ), // Update to your actual endpoint route
+      Uri.parse('$baseUrl/vote/serve'), // Update to your actual endpoint route
       headers: await _getHeaders(),
       body: jsonEncode({
         "voteId": voteId, // Will be null if they didn't vote
@@ -848,8 +905,6 @@ class ApiService {
 
     return jsonDecode(response.body);
   }
-
-
 
   // ------------------- gguest meal page apis
   // get guest meal

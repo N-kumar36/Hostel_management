@@ -2,6 +2,7 @@ import 'package:HostelMess/screens/homePagesScreen/complainPage.dart';
 import 'package:HostelMess/screens/homePagesScreen/financials_page.dart';
 import 'package:HostelMess/screens/homePagesScreen/historyPage.dart';
 import 'package:HostelMess/screens/homePagesScreen/notification_page.dart';
+import 'package:HostelMess/screens/homePagesScreen/utilityFunction/All_StudentPayment_Screen.dart';
 import 'package:HostelMess/screens/homePagesScreen/utilityFunction/DailyMenuCard.dart';
 import 'package:HostelMess/screens/homePagesScreen/utilityFunction/RoutineScreen.dart';
 import 'package:HostelMess/screens/main_screens/profile_page.dart';
@@ -88,7 +89,7 @@ class _HomepageState extends State<Homepage> {
       if (fines != null) {
         for (var fine in fines) {
           String status = fine['status'].toString().toLowerCase();
-          
+
           // ✅ FIXED: Add 'rejected' to the pending sum so they still see they owe money
           if (status == 'pending' || status == 'rejected') {
             totalPending += double.tryParse(fine['amount'].toString()) ?? 0.0;
@@ -145,12 +146,12 @@ class _HomepageState extends State<Homepage> {
         ),
         backgroundColor: themeColor,
         elevation: 0,
-        // actions: [
-        //   IconButton(
-        //     onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const NotificationPage())),
-        //     icon: const Icon(Icons.notifications_active, color: Colors.white),
-        //   ),
-        // ],
+        actions: [
+          IconButton(
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const NotificationPage())),
+            icon: const Icon(Icons.notifications_active, color: Colors.white),
+          ),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: _handleRefresh,
@@ -180,6 +181,10 @@ class _HomepageState extends State<Homepage> {
               _buildSectionHeader(
                 "Meal Summary",
                 DateFormat('MMMM yyyy').format(DateTime.now()),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const HistoryPage()),
+                ).then((_) => _handleRefresh()),
               ),
               if (isStatsLoading)
                 const LinearProgressIndicator()
@@ -208,6 +213,37 @@ class _HomepageState extends State<Homepage> {
                 _buildSectionHeader("Financials", null),
                 _buildPaymentCard(),
               ],
+              SizedBox(height: 24),
+              Row(
+                children: [
+                  Text(
+                    "All Student Payment Status.",
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Spacer(),
+                  InkWell(
+                    onTap: () {
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (context) => const StudentPaymentScreen(),
+                      ).then((_) => _handleRefresh());
+                    },
+                    child: Text(
+                      " View Details",
+                      style: TextStyle(
+                        color: themeColor,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
               // --------------------------------
               const SizedBox(height: 24), // Add space
               const HostelRulesWidget(),
