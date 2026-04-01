@@ -102,7 +102,7 @@ export const registerUser = async (req, res) => {
     let role = "student";
     let pendingStatus = "pending";
 
-    if (userCountInHostel === 0) {
+    if (userCountInHostel <= 1) { // If no users or only 1 user exists, make this user a manager
       role = "manager";
       pendingStatus = "approve"; // First user is auto-approved
     }
