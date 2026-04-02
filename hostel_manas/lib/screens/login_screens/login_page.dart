@@ -52,7 +52,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     setState(() => loading = true);
 
     try {
-      final userData = await api.login(
+      // Changed 'userData' to 'response' to better reflect what we get back
+      final response = await api.login(
         emailCtrl.text.trim().toLowerCase(),
         passCtrl.text.trim(),
       );
@@ -60,8 +61,9 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       if (!mounted) return;
       setState(() => loading = false);
 
-      if (userData != null) {
-        final bool isManager = userData['user']['role'] == 'manager';
+      // Check the 'success' boolean from your backend JSON
+      if (response['success'] == true) {
+        final bool isManager = response['user']['role'] == 'manager';
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
@@ -69,15 +71,28 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           ),
         );
       } else {
-        throw Exception("Invalid credentials");
+        // This triggers if backend sends success: false
+        _shakeController
+            .forward(from: 0)
+            .then((_) => _shakeController.reverse());
+
+        // Show the specific error message (e.g., "Invalid email" or "Invalid password")
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(response['message'] ?? "Login failed"),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     } catch (e) {
+      // This catch block handles severe app crashes, not backend 401s
       if (!mounted) return;
       setState(() => loading = false);
       _shakeController.forward(from: 0).then((_) => _shakeController.reverse());
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("Invalid email or password"),
+          content: Text("An unexpected error occurred"),
           backgroundColor: Colors.redAccent,
           behavior: SnackBarBehavior.floating,
         ),
@@ -168,7 +183,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (_) => ForgetPasswordPage(key: GlobalKey(),),
+                                    builder: (_) =>
+                                        ForgetPasswordPage(key: GlobalKey()),
                                   ),
                                 );
                               },

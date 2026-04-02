@@ -135,7 +135,7 @@ export const registerUser = async (req, res) => {
         },
         isActive: true
       });
-      console.log(`✅ First user ${user.name} registered as Manager with full rights.`);
+      console.log(` First user ${user.name} registered as Manager with full rights.`);
     }
 
     await Otp.deleteOne({ email: email.toLowerCase() });
@@ -216,15 +216,25 @@ export const registerUser = async (req, res) => {
 export const loginUser = async (req, res) => {
   const { email, password } = req.body;
 
-  console.log("Login was call", req.body);
+  console.log("Login was called", req.body);
 
   try {
+    // 1. Find the user by email
     const user = await User.findOne({ email: email.toLowerCase() });
 
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-      return res.status(401).json({ success: false, message: "Invalid credentials" });
+    // 2. Check if the user exists (Email check)
+    if (!user) {
+      return res.status(401).json({ success: false, message: "Invalid email" });
     }
 
+    // 3. Check if the password matches (Password check)
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    
+    if (!isPasswordValid) {
+      return res.status(401).json({ success: false, message: "Invalid password" });
+    }
+
+    // 4. If both are correct, generate token and return success
     res.json({
       success: true,
       user,

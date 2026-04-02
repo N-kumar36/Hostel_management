@@ -75,7 +75,7 @@ class HostelRulesWidget extends StatelessWidget {
             children: [
               _buildContactItem("Prasenjit Singha Deb", "7909900791"),
               const Divider(),
-              _buildContactItem("Sumanta Ghosh", "8710091443"),
+              _buildContactItem("Ritanu Mondal", "8101744092"),
               const Divider(),
               _buildContactItem("Riju Hosen", "8101928261"),
             ],

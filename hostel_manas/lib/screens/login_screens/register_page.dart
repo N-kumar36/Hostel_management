@@ -11,7 +11,6 @@ class RegisterPage extends StatefulWidget {
 class _RegisterPageState extends State<RegisterPage> {
   // Controllers
   final nameCtrl = TextEditingController();
-
   final emailCtrl = TextEditingController();
   final phoneCtrl = TextEditingController();
   final passCtrl = TextEditingController();
@@ -20,13 +19,11 @@ class _RegisterPageState extends State<RegisterPage> {
   final departmentCtrl = TextEditingController();
   final yearCtrl = TextEditingController();
 
-  final List<String> departments = ["B.Tech", "LLB", "MA", "MSE", "MBA"];
+  final List<String> departments = [
+    "B.Tech", "LLB", "MA", "MSE", "MBA", "M.Tech", "PhD", "Bsc", "Msc", "BCA", "MCA"
+  ];
   final List<String> years = [
-    "1st Year",
-    "2nd Year",
-    "3rd Year",
-    "4th Year",
-    "5th Year",
+    "1st Year", "2nd Year", "3rd Year", "4th Year", "5th Year",
   ];
 
   // Logic States
@@ -69,27 +66,46 @@ class _RegisterPageState extends State<RegisterPage> {
 
   // Step 1: Send OTP
   void sendOtp() async {
-    if (emailCtrl.text.isEmpty || phoneCtrl.text.isEmpty) {
+    // STRICT VALIDATION: Do not proceed if form data is not filled
+    if (nameCtrl.text.isEmpty ||
+        emailCtrl.text.isEmpty ||
+        phoneCtrl.text.isEmpty ||
+        regNumCtrl.text.isEmpty ||
+        departmentCtrl.text.isEmpty ||
+        yearCtrl.text.isEmpty ||
+        passCtrl.text.isEmpty ||
+        selectedHostelId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Email and Phone are required")),
+        const SnackBar(
+          content: Text("Please fill in all personal and academic details before requesting OTP."),
+          backgroundColor: Colors.redAccent,
+        ),
       );
       return;
     }
 
     setState(() => loading = true);
-    final ok = await api.sendOtp(emailCtrl.text.trim(), phoneCtrl.text.trim());
+    
+    // Expecting a Map response from ApiService to read exact backend messages
+    final response = await api.sendOtp(emailCtrl.text.trim(), phoneCtrl.text.trim());
 
     if (!mounted) return;
     setState(() {
       loading = false;
-      if (ok) {
+      if (response['success'] == true) {
         otpSent = true;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text("OTP sent to your email")));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(response['message'] ?? "OTP sent to your email"),
+            backgroundColor: Colors.green,
+          )
+        );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Failed to send OTP. Check details.")),
+          SnackBar(
+            content: Text(response['message'] ?? "Failed to send OTP. Check details."),
+            backgroundColor: Colors.redAccent,
+          ),
         );
       }
     });
@@ -107,7 +123,7 @@ class _RegisterPageState extends State<RegisterPage> {
     setState(() => loading = true);
 
     // Matches the keys in your Node.js Controller precisely
-    final success = await api.register({
+    final response = await api.register({
       "name": nameCtrl.text.trim(),
       "regNum": regNumCtrl.text.trim(),
       "department": departmentCtrl.text.trim(),
@@ -119,22 +135,23 @@ class _RegisterPageState extends State<RegisterPage> {
       "otp": otpCtrl.text.trim(),
     });
 
-    
-
     if (!mounted) return;
     setState(() => loading = false);
 
-    if (success) {
+    if (response['success'] == true) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Registration Successful! Please login.")),
+        const SnackBar(
+          content: Text("Registration Successful! Please login."),
+          backgroundColor: Colors.green,
+        ),
       );
       Navigator.pop(context);
     } else {
+      // Shows exact error from Node.js (e.g. "Invalid OTP" or "Email is already registered")
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            "Registration Failed. User may already exist or OTP is wrong.",
-          ),
+        SnackBar(
+          content: Text(response['message'] ?? "Registration Failed."),
+          backgroundColor: Colors.redAccent,
         ),
       );
     }
@@ -305,7 +322,6 @@ class _RegisterPageState extends State<RegisterPage> {
                       ? const SizedBox(
                           height: 24,
                           width: 24,
-
                           child: CircularProgressIndicator(
                             color: Colors.white,
                             strokeWidth: 2,

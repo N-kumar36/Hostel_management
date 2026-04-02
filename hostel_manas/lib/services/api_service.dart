@@ -9,9 +9,9 @@ import 'package:intl/intl.dart';
 
 class ApiService {
   // final String baseUrl = "https://hostel-management-3e61.onrender.com/api";
-  // final String baseUrl = "http://192.168.0.39:5000/api";
+  final String baseUrl = "http://192.168.0.39:5000/api";
   // final String baseUrl = "http://192.168.18.253:5000/api";
-  final String baseUrl = "https://hostel-management-rouge-six.vercel.app/api";
+  // final String baseUrl = "https://hostel-management-rouge-six.vercel.app/api";
 
   // Helper to get headers with Bearer token
   Future<Map<String, String>> _getHeaders() async {
@@ -85,25 +85,31 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>?> login(String email, String password) async {
+  Future<Map<String, dynamic>> login(String email, String password) async {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/auth/login'),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({"email": email, "password": password}),
       );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['token'] != null) {
-          SharedPreferences prefs = await SharedPreferences.getInstance();
-          await prefs.setString("token", data['token']);
-          return data;
-        }
+
+      // Decode the JSON response whether it is a success (200) or an error (401)
+      final data = jsonDecode(response.body);
+
+      // If login is successful and there is a token, save it
+      if (response.statusCode == 200 && data['token'] != null) {
+        SharedPreferences prefs = await SharedPreferences.getInstance();
+        await prefs.setString("token", data['token']);
       }
-      return null;
+
+      // Always return the data so the UI can check data['success'] and data['message']
+      return data;
     } catch (e) {
       print("Login error: $e");
-      return null;
+      return {
+        "success": false,
+        "message": "Network error occurred. Please try again.",
+      };
     }
   }
 
@@ -138,16 +144,21 @@ class ApiService {
     return null;
   }
 
-  Future<bool> sendOtp(String email, String phone) async {
+  Future<Map<String, dynamic>> sendOtp(String email, String phone) async {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/auth/send-otp'),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({"email": email, "phone": phone}),
       );
-      return response.statusCode == 200;
+      // Return the decoded JSON body which contains {success, message}
+      return jsonDecode(response.body);
     } catch (e) {
-      return false;
+      print("Send OTP Error: $e");
+      return {
+        "success": false,
+        "message": "Network error occurred. Please try again.",
+      };
     }
   }
 
@@ -181,17 +192,21 @@ class ApiService {
     }
   }
 
-  Future<bool> register(Map<String, dynamic> userData) async {
+  Future<Map<String, dynamic>> register(Map<String, dynamic> userData) async {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/auth/register'),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode(userData),
       );
-      return response.statusCode == 201 || response.statusCode == 200;
+      // Return the decoded JSON body which contains {success, message}
+      return jsonDecode(response.body);
     } catch (e) {
       print("Register Error: $e");
-      return false;
+      return {
+        "success": false,
+        "message": "Network error occurred. Please try again.",
+      };
     }
   }
 
@@ -557,12 +572,13 @@ class ApiService {
     return json.decode(response.body);
   }
 
-
-// Inside your api_service.dart
+  // Inside your api_service.dart
   Future<Map<String, dynamic>> getAllPaymentHistory() async {
     try {
       final response = await http.get(
-        Uri.parse('$baseUrl/user/all-payment-history'), // Check your exact route path
+        Uri.parse(
+          '$baseUrl/user/all-payment-history',
+        ), // Check your exact route path
         headers: await _getHeaders(),
       );
       return jsonDecode(response.body);
@@ -570,8 +586,8 @@ class ApiService {
       throw Exception("Failed to load payment history");
     }
   }
- 
- Future<Map<String, dynamic>> getNotifications() async {
+
+  Future<Map<String, dynamic>> getNotifications() async {
     try {
       final response = await http.get(
         Uri.parse('$baseUrl/notifications'), // Update with your route
@@ -586,7 +602,9 @@ class ApiService {
   Future<bool> markAllNotificationsRead() async {
     try {
       final response = await http.put(
-        Uri.parse('$baseUrl/notifications/mark-all-as-read'), // Update with your route
+        Uri.parse(
+          '$baseUrl/notifications/mark-all-as-read',
+        ), // Update with your route
         headers: await _getHeaders(),
       );
       final decoded = jsonDecode(response.body);
