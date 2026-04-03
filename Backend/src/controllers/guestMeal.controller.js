@@ -2,6 +2,7 @@ import GuestMeal from "../models/guestMeal.model.js";
 import Fine from "../models/fine.model.js";
 import Meal from "../models/Meal.js";
 import Vote from "../models/Vote.js";
+import MealPrice from "../models/FinePrice.js";
 
 
 
@@ -106,7 +107,8 @@ export const getHostelGuestRequests = async (req, res) => {
   }
 };
 
-//  Manager approves/rejects request
+
+// Manager approves/rejects request
 export const updateRequestStatus = async (req, res) => {
   try {
     const { status } = req.body;
@@ -142,15 +144,16 @@ export const updateRequestStatus = async (req, res) => {
       }
 
       const slot = request.mealTime.toLowerCase(); 
-      const menuChoice = mealDoc[slot].manu; 
+      const menuChoice = mealDoc[slot].manu; // Note: verify if this should be .menu instead of .manu in your schema
 
       // --- BILLING LOGIC ---
       const priceTable = await MealPrice.findOne({ hostelId: request.hostelId });
       
       let unitPrice = 0;
       if (priceTable && priceTable.prices) {
-        // Accessing Mongoose Map using .get()
-        unitPrice = priceTable.prices.get(menuChoice) || 0;
+        // FIXED: Access standard nested object using bracket notation and lowercase key
+        const safeMenuChoice = menuChoice ? menuChoice.toLowerCase() : "";
+        unitPrice = priceTable.prices[safeMenuChoice] || 0;
       }
 
       const totalAmount = unitPrice * request.guestCount;
@@ -194,7 +197,7 @@ export const updateRequestStatus = async (req, res) => {
           timeSlot: slot,
           mealType: menuChoice,
           isGuest: true,
-          // ✅ FIX: Added request ID suffix to ensure guestName uniqueness in the index
+          // Added request ID suffix to ensure guestName uniqueness in the index
           guestName: `Guest ${i} (${request.studentId.name}) - ${requestId.slice(-4)}`,
           guestMealId: request._id,
           votedAt: new Date(),
@@ -204,7 +207,7 @@ export const updateRequestStatus = async (req, res) => {
       
       if (guestVoteEntries.length > 0) {
         try {
-          // ✅ FIX: ordered: false prevents one duplicate from stopping the whole batch
+          // ordered: false prevents one duplicate from stopping the whole batch
           await Vote.insertMany(guestVoteEntries, { ordered: false });
           console.log(`✅ Created ${request.guestCount} individual guest votes.`);
         } catch (bulkError) {
