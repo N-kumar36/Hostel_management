@@ -22,24 +22,12 @@ class _FineManagementPageState extends State<FineManagementPage> {
   List<dynamic> monthlyBills = [];
 
   // --- MENU PRICE CONTROLLERS (Single Unit Prices for Fines) ---
-  final TextEditingController _vegPriceController = TextEditingController(
-    text: "35",
-  );
-  final TextEditingController _eggPriceController = TextEditingController(
-    text: "45",
-  );
-  final TextEditingController _paneerPriceController = TextEditingController(
-    text: "45",
-  );
-  final TextEditingController _chickenPriceController = TextEditingController(
-    text: "65",
-  );
-  final TextEditingController _fishPriceController = TextEditingController(
-    text: "55",
-  );
-  final TextEditingController _muttonPriceController = TextEditingController(
-    text: "85",
-  );
+  final TextEditingController _vegPriceController = TextEditingController(text: "35");
+  final TextEditingController _eggPriceController = TextEditingController(text: "45");
+  final TextEditingController _paneerPriceController = TextEditingController(text: "45");
+  final TextEditingController _chickenPriceController = TextEditingController(text: "65");
+  final TextEditingController _fishPriceController = TextEditingController(text: "55");
+  final TextEditingController _muttonPriceController = TextEditingController(text: "85");
 
   // --- PLAN A CONTROLLERS (1000 Rupee / Basic) ---
   final TextEditingController _planAPrice = TextEditingController(text: "1000");
@@ -70,7 +58,6 @@ class _FineManagementPageState extends State<FineManagementPage> {
     _fetchSavedPrices();
   }
 
-  // Make sure _loadInitialData() calls _loadBills() instead of _loadPendingFines()
   Future<void> _loadInitialData() async {
     setState(() => isLoading = true);
     await Future.wait([_loadBills(), _fetchAllStudents()]);
@@ -83,9 +70,7 @@ class _FineManagementPageState extends State<FineManagementPage> {
       final res = await api.getSattingData();
       if (res != null) {
         setState(() {
-          // 1. Map Fine Prices
-          if (res['finePrices'] != null &&
-              res['finePrices']['prices'] != null) {
+          if (res['finePrices'] != null && res['finePrices']['prices'] != null) {
             final p = res['finePrices']['prices'];
             _vegPriceController.text = p['veg']?.toString() ?? "35";
             _eggPriceController.text = p['egg']?.toString() ?? "45";
@@ -95,13 +80,11 @@ class _FineManagementPageState extends State<FineManagementPage> {
             _muttonPriceController.text = p['mutton']?.toString() ?? "85";
           }
 
-          // 2. Map UPI Details
           if (res['upi'] != null) {
             _upiIdController.text = res['upi']['upiId'] ?? "";
             _merchantNameController.text = res['upi']['merchantName'] ?? "";
           }
 
-          // 3. Map Plan Limits (Iterating through the list)
           if (res['plans'] != null && res['plans'] is List) {
             for (var plan in res['plans']) {
               final limits = plan['limits'];
@@ -132,9 +115,7 @@ class _FineManagementPageState extends State<FineManagementPage> {
   Future<void> _saveAllSettings() async {
     setState(() => isLoading = true);
 
-    // Construct the full configuration object
     final Map<String, dynamic> fullConfig = {
-      // 1. Individual Fine Prices (for the 'prices' collection/document)
       "finePrices": {
         "veg": int.tryParse(_vegPriceController.text) ?? 0,
         "egg": int.tryParse(_eggPriceController.text) ?? 0,
@@ -143,8 +124,6 @@ class _FineManagementPageState extends State<FineManagementPage> {
         "fish": int.tryParse(_fishPriceController.text) ?? 0,
         "mutton": int.tryParse(_muttonPriceController.text) ?? 0,
       },
-
-      // 2. Monthly Plan Limits (for the 'plans' collection)
       "plans": {
         "basic": {
           "price": int.tryParse(_planAPrice.text) ?? 1000,
@@ -169,8 +148,6 @@ class _FineManagementPageState extends State<FineManagementPage> {
           },
         },
       },
-
-      // 3. Manager UPI Details (for the 'hostel_details' or 'upi' collection)
       "upi": {
         "upiId": _upiIdController.text.trim(),
         "merchantName": _merchantNameController.text.trim(),
@@ -178,9 +155,7 @@ class _FineManagementPageState extends State<FineManagementPage> {
     };
 
     try {
-      // Single API call to save everything
       final success = await api.saveSettingData(fullConfig);
-
       if (success) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -191,7 +166,6 @@ class _FineManagementPageState extends State<FineManagementPage> {
         );
       }
     } catch (e) {
-      debugPrint("Save Error: $e");
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text("Failed to save settings"),
@@ -208,13 +182,13 @@ class _FineManagementPageState extends State<FineManagementPage> {
     setState(() => allStudents = res ?? []);
   }
 
-  // Replace your old _loadPendingFines() with this:
   Future<void> _loadBills() async {
     setState(() => isLoading = true);
-
-    // Format the date to send to backend as "2026-03"
+    
+    // NOTE: If your backend expects "March 2026", change this to DateFormat('MMMM yyyy'). 
+    // Currently using 'yyyy-MM' as per your previous setup.
     String formattedMonth = DateFormat('yyyy-MM').format(_selectedMonth);
-
+    
     final res = await api.getBillsByMonth(formattedMonth);
     setState(() {
       monthlyBills = res ?? [];
@@ -223,7 +197,6 @@ class _FineManagementPageState extends State<FineManagementPage> {
   }
 
   // --- UI TABS ---
-
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
@@ -255,6 +228,11 @@ class _FineManagementPageState extends State<FineManagementPage> {
   }
 
   Widget _buildBillsTab() {
+    // ✨ FIXED: Check if we are allowed to go to the next month
+    final now = DateTime.now();
+    bool canGoForward = _selectedMonth.year < now.year || 
+                       (_selectedMonth.year == now.year && _selectedMonth.month < now.month);
+
     return Column(
       children: [
         // --- MONTH SELECTOR UI ---
@@ -268,44 +246,39 @@ class _FineManagementPageState extends State<FineManagementPage> {
                 icon: const Icon(Icons.chevron_left, color: Colors.redAccent),
                 onPressed: () {
                   setState(() {
-                    _selectedMonth = DateTime(
-                      _selectedMonth.year,
-                      _selectedMonth.month - 1,
-                      1,
-                    );
+                    _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month - 1);
                   });
                   _loadBills();
                 },
               ),
               Text(
                 DateFormat('MMMM yyyy').format(_selectedMonth),
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
+              // ✨ FIXED: Disables the button and grays it out if trying to go past current month
               IconButton(
-                icon: const Icon(Icons.chevron_right, color: Colors.redAccent),
-                onPressed: () {
-                  setState(() {
-                    _selectedMonth = DateTime(
-                      _selectedMonth.year,
-                      _selectedMonth.month + 1,
-                      1,
-                    );
-                  });
-                  _loadBills();
-                },
+                icon: Icon(
+                  Icons.chevron_right, 
+                  color: canGoForward ? Colors.redAccent : Colors.grey.shade300,
+                ),
+                onPressed: canGoForward
+                    ? () {
+                        setState(() {
+                          _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month + 1);
+                        });
+                        _loadBills();
+                      }
+                    : null, // Null disables the button entirely
               ),
             ],
           ),
         ),
         const Divider(height: 1),
 
-        // --- BILLS LIST ---
+        // --- BILLS LIST WITH REFRESH ---
         Expanded(
           child: isLoading
-              ? const Center(child: CircularProgressIndicator())
+              ? const Center(child: CircularProgressIndicator(color: Colors.redAccent))
               : _buildPaymentList(),
         ),
       ],
@@ -314,11 +287,7 @@ class _FineManagementPageState extends State<FineManagementPage> {
 
   Widget _buildStudentsTab() {
     final filtered = allStudents
-        .where(
-          (s) => s['name'].toString().toLowerCase().contains(
-            searchQuery.toLowerCase(),
-          ),
-        )
+        .where((s) => s['name'].toString().toLowerCase().contains(searchQuery.toLowerCase()))
         .toList();
 
     return Column(
@@ -326,7 +295,7 @@ class _FineManagementPageState extends State<FineManagementPage> {
         Padding(
           padding: const EdgeInsets.all(16),
           child: Material(
-            elevation: 2, // Move elevation here
+            elevation: 2, 
             shadowColor: Colors.black26,
             borderRadius: BorderRadius.circular(15),
             child: TextField(
@@ -336,7 +305,6 @@ class _FineManagementPageState extends State<FineManagementPage> {
                 prefixIcon: const Icon(Icons.search, color: Colors.redAccent),
                 filled: true,
                 fillColor: Colors.white,
-                // Remove border side to keep it clean with the Material shadow
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(15),
                   borderSide: BorderSide.none,
@@ -346,55 +314,41 @@ class _FineManagementPageState extends State<FineManagementPage> {
             ),
           ),
         ),
+        // ✨ FIXED: Added RefreshIndicator so managers can pull to refresh the student list!
         Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: filtered.length,
-            itemBuilder: (c, i) {
-              final student = filtered[i];
-              final String? photoUrl =
-                  student['photoURL']; // Make sure key matches your User model
+          child: RefreshIndicator(
+            onRefresh: _fetchAllStudents,
+            color: Colors.redAccent,
+            child: ListView.builder(
+              physics: const AlwaysScrollableScrollPhysics(), // Ensures it can be pulled even if list is short
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              itemCount: filtered.length,
+              itemBuilder: (c, i) {
+                final student = filtered[i];
+                final String? photoUrl = student['photoURL'];
 
-              return Card(
-                elevation: 2,
-                margin: const EdgeInsets.only(bottom: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(15),
-                ),
-                child: ListTile(
-                  contentPadding: const EdgeInsets.all(10),
-                  leading: CircleAvatar(
-                    radius: 25,
-                    backgroundColor: Colors.grey.shade200,
-                    backgroundImage: (photoUrl != null && photoUrl.isNotEmpty)
-                        ? NetworkImage(photoUrl)
-                        : null,
-                    child: (photoUrl == null || photoUrl.isEmpty)
-                        ? const Icon(Icons.person, color: Colors.grey, size: 30)
-                        : null,
-                  ),
-                  title: Text(
-                    student['name'] ?? "Unknown",
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
+                return Card(
+                  elevation: 2,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.all(10),
+                    leading: CircleAvatar(
+                      radius: 25,
+                      backgroundColor: Colors.grey.shade200,
+                      backgroundImage: (photoUrl != null && photoUrl.isNotEmpty) ? NetworkImage(photoUrl) : null,
+                      child: (photoUrl == null || photoUrl.isEmpty) ? const Icon(Icons.person, color: Colors.grey, size: 30) : null,
+                    ),
+                    title: Text(student['name'] ?? "Unknown", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    subtitle: Text(student['email'] ?? "No email provided", style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.add_circle, color: Colors.redAccent, size: 30),
+                      onPressed: () => _showIndividualFineDialog(student),
                     ),
                   ),
-                  subtitle: Text(
-                    student['email'] ?? "No email provided",
-                    style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-                  ),
-                  trailing: IconButton(
-                    icon: const Icon(
-                      Icons.add_circle,
-                      color: Colors.redAccent,
-                      size: 30,
-                    ),
-                    onPressed: () => _showIndividualFineDialog(student),
-                  ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
         ),
       ],
@@ -426,7 +380,6 @@ class _FineManagementPageState extends State<FineManagementPage> {
   }
 
   // --- SUB-WIDGETS ---
-
   Widget _buildPlanLimitsCard() {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
@@ -434,58 +387,22 @@ class _FineManagementPageState extends State<FineManagementPage> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            const Text(
-              "Monthly Included Meals (Limits)",
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
+            const Text("Monthly Included Meals (Limits)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             const Divider(),
-            _planSection(
-              "30 MEALS PLAN (₹)",
-              _planAPrice,
-              _planAVeg,
-              _planAChicken,
-              _planAFish,
-              _planAEgg,
-              _planAPaneer,
-              _planAMutton,
-              Colors.orange,
-            ),
+            _planSection("30 MEALS PLAN (₹)", _planAPrice, _planAVeg, _planAChicken, _planAFish, _planAEgg, _planAPaneer, _planAMutton, Colors.orange),
             const SizedBox(height: 20),
-            _planSection(
-              "60 MEALS PLAN (₹)",
-              _planBPrice,
-              _planBVeg,
-              _planBChicken,
-              _planBFish,
-              _planBEgg,
-              _planBPaneer,
-              _planBMutton,
-              Colors.deepPurple,
-            ),
+            _planSection("60 MEALS PLAN (₹)", _planBPrice, _planBVeg, _planBChicken, _planBFish, _planBEgg, _planBPaneer, _planBMutton, Colors.deepPurple),
           ],
         ),
       ),
     );
   }
 
-  Widget _planSection(
-    String name,
-    var p,
-    var v,
-    var c,
-    var f,
-    var e,
-    var pan,
-    var mut,
-    Color color,
-  ) {
+  Widget _planSection(String name, var p, var v, var c, var f, var e, var pan, var mut, Color color) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          name,
-          style: TextStyle(color: color, fontWeight: FontWeight.bold),
-        ),
+        Text(name, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
         Row(
           children: [
             Expanded(child: _miniInp("Price", p)),
@@ -517,8 +434,8 @@ class _FineManagementPageState extends State<FineManagementPage> {
         keyboardType: TextInputType.number,
         decoration: InputDecoration(
           labelText: l,
-          border: OutlineInputBorder(),
-          contentPadding: EdgeInsets.symmetric(horizontal: 8),
+          border: const OutlineInputBorder(),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 8),
         ),
       ),
     );
@@ -530,10 +447,7 @@ class _FineManagementPageState extends State<FineManagementPage> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            const Text(
-              "Extra Meal Fine Rates (Per Plate)",
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
+            const Text("Extra Meal Fine Rates (Per Plate)", style: TextStyle(fontWeight: FontWeight.bold)),
             Row(
               children: [
                 Expanded(child: _miniInp("Veg", _vegPriceController)),
@@ -564,25 +478,15 @@ class _FineManagementPageState extends State<FineManagementPage> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            const Text(
-              "Payment Receiving Info",
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            TextField(
-              controller: _upiIdController,
-              decoration: const InputDecoration(labelText: "UPI ID"),
-            ),
-            TextField(
-              controller: _merchantNameController,
-              decoration: const InputDecoration(labelText: "Display Name"),
-            ),
+            const Text("Payment Receiving Info", style: TextStyle(fontWeight: FontWeight.bold)),
+            TextField(controller: _upiIdController, decoration: const InputDecoration(labelText: "UPI ID")),
+            TextField(controller: _merchantNameController, decoration: const InputDecoration(labelText: "Display Name")),
           ],
         ),
       ),
     );
   }
 
-  // --- Helper for Status Colors ---
   Widget _buildStatusBadge(String status) {
     Color color;
     switch (status.toLowerCase()) {
@@ -606,63 +510,69 @@ class _FineManagementPageState extends State<FineManagementPage> {
     );
   }
 
-  // --- Updated List Widget ---
+  // --- Updated List Widget With PULL-TO-REFRESH ---
   Widget _buildPaymentList() {
-    // 1. Check monthlyBills instead of pendingPayments
+    // If empty, return a Scrollable area inside the RefreshIndicator so it can still be pulled!
     if (monthlyBills.isEmpty) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(20.0),
-          child: Text("No bills found for this month"),
+      return RefreshIndicator(
+        onRefresh: _loadBills,
+        color: Colors.redAccent,
+        child: LayoutBuilder(
+          builder: (context, constraints) => ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: [
+              Container(
+                height: constraints.maxHeight,
+                alignment: Alignment.center,
+                child: const Text("No bills found for this month"),
+              ),
+            ],
+          ),
         ),
       );
     }
     
-    return Column(
-      // 2. Map over monthlyBills instead of pendingPayments
-      children: monthlyBills.map((p) {
-        final student = p['studentId'];
-        final String? photoUrl = student != null ? student['photoURL'] : null;
-        final String status = p['status'] ?? 'pending';
+    return RefreshIndicator(
+      onRefresh: _loadBills,
+      color: Colors.redAccent,
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(), // Ensures it can be pulled even if list is short
+        padding: const EdgeInsets.only(top: 8, bottom: 20),
+        itemCount: monthlyBills.length,
+        itemBuilder: (context, index) {
+          final p = monthlyBills[index];
+          final student = p['studentId'];
+          final String? photoUrl = student != null ? student['photoURL'] : null;
+          final String status = p['status'] ?? 'pending';
 
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12, left: 16, right: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(15),
-          ),
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundImage: (photoUrl != null && photoUrl.isNotEmpty)
-                  ? NetworkImage(photoUrl)
-                  : null,
-              child: (photoUrl == null || photoUrl.isEmpty)
-                  ? const Icon(Icons.person)
-                  : null,
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12, left: 16, right: 16),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundImage: (photoUrl != null && photoUrl.isNotEmpty) ? NetworkImage(photoUrl) : null,
+                child: (photoUrl == null || photoUrl.isEmpty) ? const Icon(Icons.person) : null,
+              ),
+              title: Text(student?['name'] ?? "Unknown", style: const TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("₹${p['amount']} - ${p['title']}"),
+                  const SizedBox(height: 4),
+                  _buildStatusBadge(status),
+                ],
+              ),
+              trailing: const Icon(Icons.chevron_right, color: Colors.redAccent),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => PaymentDetailScreen(payment: p)),
+                ).then((_) => _loadBills()); 
+              },
             ),
-            title: Text(
-              student?['name'] ?? "Unknown",
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text("₹${p['amount']} - ${p['title']}"),
-                const SizedBox(height: 4),
-                _buildStatusBadge(status), // Added status badge here
-              ],
-            ),
-            trailing: const Icon(Icons.chevron_right, color: Colors.redAccent),
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => PaymentDetailScreen(payment: p),
-                ),
-              ).then((_) => _loadBills()); // Refreshes the list when returning
-            },
-          ),
-        );
-      }).toList(),
+          );
+        },
+      ),
     );
   }
 
@@ -675,12 +585,9 @@ class _FineManagementPageState extends State<FineManagementPage> {
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
-        // To manage loading state inside dialog
         builder: (context, setDialogState) {
           return AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-            ),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             title: Row(
               children: [
                 const Icon(Icons.receipt_long, color: Colors.redAccent),
@@ -694,27 +601,19 @@ class _FineManagementPageState extends State<FineManagementPage> {
                 children: [
                   TextField(
                     controller: _titleController,
-                    decoration: const InputDecoration(
-                      labelText: "Title",
-                      hintText: "e.g., Extra Chicken, Damage Fine",
-                    ),
+                    decoration: const InputDecoration(labelText: "Title", hintText: "e.g., Extra Chicken, Damage Fine"),
                   ),
                   const SizedBox(height: 10),
                   TextField(
                     controller: _amountController,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: "Amount (₹)",
-                      prefixText: "₹ ",
-                    ),
+                    decoration: const InputDecoration(labelText: "Amount (₹)", prefixText: "₹ "),
                   ),
                   const SizedBox(height: 10),
                   TextField(
                     controller: _descController,
                     maxLines: 2,
-                    decoration: const InputDecoration(
-                      labelText: "Description (Optional)",
-                    ),
+                    decoration: const InputDecoration(labelText: "Description (Optional)"),
                   ),
                 ],
               ),
@@ -722,22 +621,14 @@ class _FineManagementPageState extends State<FineManagementPage> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text(
-                  "CANCEL",
-                  style: TextStyle(color: Colors.grey),
-                ),
+                child: const Text("CANCEL", style: TextStyle(color: Colors.grey)),
               ),
               ElevatedButton(
                 onPressed: isCreating
                     ? null
                     : () async {
-                        if (_titleController.text.isEmpty ||
-                            _amountController.text.isEmpty) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text("Please fill Title and Amount"),
-                            ),
-                          );
+                        if (_titleController.text.isEmpty || _amountController.text.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please fill Title and Amount")));
                           return;
                         }
 
@@ -754,38 +645,23 @@ class _FineManagementPageState extends State<FineManagementPage> {
 
                         if (success) {
                           Navigator.pop(context);
-                          _loadBills(); // Refresh the list on the first tab
+                          _loadBills(); 
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text("Fine created successfully!"),
-                              backgroundColor: Colors.green,
-                            ),
+                            const SnackBar(content: Text("Fine created successfully!"), backgroundColor: Colors.green),
                           );
                         } else {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text("Failed to create fine"),
-                              backgroundColor: Colors.red,
-                            ),
+                            const SnackBar(content: Text("Failed to create fine"), backgroundColor: Colors.red),
                           );
                         }
                       },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.redAccent,
                   foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
                 child: isCreating
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2,
-                        ),
-                      )
+                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                     : const Text("GENERATE"),
               ),
             ],
@@ -794,6 +670,4 @@ class _FineManagementPageState extends State<FineManagementPage> {
       ),
     );
   }
-
-  
 }

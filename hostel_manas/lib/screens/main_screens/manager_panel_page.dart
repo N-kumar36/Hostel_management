@@ -1,3 +1,4 @@
+import 'package:HostelMess/screens/managerScreen/MealSubscriptionsPage.dart';
 import 'package:HostelMess/screens/managerScreen/fine_management_page.dart';
 import 'package:HostelMess/screens/managerScreen/PendingStudentsPage.dart';
 import 'package:HostelMess/screens/managerScreen/RoutineManagementPage.dart';
@@ -8,6 +9,7 @@ import 'package:HostelMess/screens/managerScreen/create_meal_page.dart';
 import 'package:HostelMess/screens/managerScreen/GuestMealPage.dart';
 import 'package:HostelMess/services/api_service.dart';
 import 'package:flutter/material.dart';
+import '../managerScreen/ComplainsPage.dart';
 
 class ManagerPanelPage extends StatefulWidget {
   const ManagerPanelPage({super.key});
@@ -166,6 +168,38 @@ class _ManagerPanelPageState extends State<ManagerPanelPage> {
                   context,
                   MaterialPageRoute(
                     builder: (context) => const GuestMealPage(),
+                  ),
+                ).then((_) => _fetchCounts()); // Refresh count when returning
+              },
+              badgeCount: pendingGuestMealCount, // Pass the count here
+            ),
+            _adminCard(
+              context,
+              "Meal Subscriptions",
+              Icons.food_bank_rounded,
+              Colors.green,
+              () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) =>
+                        const MealSubscriptionsPage(), // <-- FIXED THIS
+                  ),
+                ).then((_) => _fetchCounts()); // Refresh count when returning
+              },
+              badgeCount:
+                  pendingGuestMealCount, // Update this if you have a pending sub count
+            ),
+            _adminCard(
+              context,
+              "Complains",
+              Icons.feedback_outlined,
+              const Color.fromARGB(255, 184, 204, 56),
+              () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const ComplainsPage(),
                   ),
                 ).then((_) => _fetchCounts()); // Refresh count when returning
               },

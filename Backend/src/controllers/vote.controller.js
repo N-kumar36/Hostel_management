@@ -688,7 +688,7 @@ export const toggleServeStatus = async (req, res) => {
     // 3. Find Subscription
     const subscription = await StudentSubscription.findOne({
       studentId: currentUserId,
-      status: { $in: ["active", "completed"] }
+      status: { $in: ["active", "completed", "pending"] }
     }).sort({ createdAt: -1 });
 
     if (!subscription && (!vote || !vote.isGuest)) {

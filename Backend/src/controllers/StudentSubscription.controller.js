@@ -3,6 +3,7 @@ import MealPlan from "../models/MealPlan.js";
 import Fine from "../models/fine.model.js"; // Verify this exact filename is correct
 import User from "../models/User.js"
 
+
 export const selectPackage = async (req, res) => {
     try {
         const { planId, currentMonth } = req.body;
@@ -119,6 +120,209 @@ export const getAllSubscriptions = async (req, res) => {
             data: subscriptions
         });
     } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+
+
+
+// Backend Node.js Controller
+export const getManagerSubscriptions = async (req, res) => {
+    try {
+        const hostelId = req.user.hostelId; // From manager's token
+
+        // Fetch ALL subscriptions for this hostel and populate student info
+        const subscriptions = await StudentSubscription.find({ hostelId })
+            .populate("studentId", "name regNum department roomNumber")
+            .populate("mealsPlanId", "planName")
+            .sort({ createdAt: -1 }); // Newest first
+
+        res.status(200).json({
+            success: true,
+            count: subscriptions.length,
+            data: subscriptions
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+
+// Update a student's subscription (Manager Only)
+// export const updateSubscriptionByManager = async (req, res) => {
+//     try {
+//         const { id } = req.params; // The ID of the StudentSubscription
+//         const { planId, status } = req.body;
+//         const hostelId = req.user.hostelId;
+
+//         // 1. Find the subscription
+//         const subscription = await StudentSubscription.findOne({ _id: id, hostelId });
+//         if (!subscription) {
+//             return res.status(404).json({ success: false, message: "Subscription not found" });
+//         }
+
+//         // 2. If the manager is changing the plan type (e.g., 60 meals down to 30 meals)
+//         if (planId && planId !== subscription.mealsPlanId.toString()) {
+//             const newPlan = await MealPlan.findOne({ _id: planId, hostelId });
+//             if (!newPlan) {
+//                 return res.status(404).json({ success: false, message: "New meal plan not found" });
+//             }
+
+//             // Completely override the current plan with the new plan's data
+//             subscription.mealsPlanId = newPlan._id;
+//             subscription.planType = newPlan.planType;
+//             subscription.amount = newPlan.monthlyPrice;
+//             subscription.maxLimits = newPlan.limits;
+//         }
+
+//         // 3. Update the status if changed
+//         if (status) {
+//             subscription.status = status;
+//         }
+
+//         await subscription.save();
+
+//         res.status(200).json({ 
+//             success: true, 
+//             message: "Subscription successfully updated!", 
+//             data: subscription 
+//         });
+
+//     } catch (error) {
+//         console.error("Update Subscription Error:", error);
+//         res.status(500).json({ success: false, message: error.message });
+//     }
+// };
+
+
+
+export const updateSubscriptionByManager = async (req, res) => {
+    try {
+        const { id } = req.params; // The ID of the StudentSubscription
+        const { planId, status } = req.body;
+        const hostelId = req.user.hostelId;
+        const managerId = req.user._id || req.user.id; // Safely get manager ID
+
+        // 1. Find the subscription
+        const subscription = await StudentSubscription.findOne({ _id: id, hostelId });
+        if (!subscription) {
+            return res.status(404).json({ success: false, message: "Subscription not found" });
+        }
+
+        // 2. If the manager is changing the plan type
+        if (planId && planId !== subscription.mealsPlanId.toString()) {
+            const newPlan = await MealPlan.findOne({ _id: planId, hostelId });
+            if (!newPlan) {
+                return res.status(404).json({ success: false, message: "New meal plan not found" });
+            }
+
+            const oldPrice = subscription.amount;
+            const newPrice = newPlan.monthlyPrice;
+
+            // ==========================================
+            // ✨ SMART FINE & BILLING LOGIC ✨
+            // ==========================================
+            if (newPrice < oldPrice) {
+                // DOWNGRADE (e.g., Mistakenly bought 60 meals (1500), changing down to 30 meals (1000))
+                
+                // 1. Delete the old incorrect pending fine
+                await Fine.deleteMany({ 
+                    subscriptionId: subscription._id, 
+                    status: "pending" 
+                });
+
+                // 2. Create the new corrected fine for the new full price (e.g., 1000)
+                await Fine.create({
+                    studentId: subscription.studentId,
+                    managerId: managerId,
+                    hostelId: hostelId,
+                    title: `Mess Bill - ${newPlan.planType}`,
+                    amount: newPrice,
+                    description: `Manager corrected plan to ${newPlan.planType}.`,
+                    isMealPackage: true,
+                    MealPlanID: newPlan._id,
+                    subscriptionId: subscription._id,
+                    status: "pending"
+                });
+
+            } else if (newPrice > oldPrice) {
+                // UPGRADE (e.g., Currently on 30 meals (1000), upgrading to 60 meals (1500))
+                
+                // Create an additional fine for ONLY the difference (e.g., 500)
+                await Fine.create({
+                    studentId: subscription.studentId,
+                    managerId: managerId,
+                    hostelId: hostelId,
+                    title: `Plan Upgrade Fee - ${newPlan.planType}`,
+                    amount: newPrice - oldPrice, // Math: 1500 - 1000 = 500
+                    description: `Manager upgraded plan from ${subscription.planType} to ${newPlan.planType}.`,
+                    isMealPackage: true,
+                    MealPlanID: newPlan._id,
+                    subscriptionId: subscription._id,
+                    status: "pending"
+                });
+            }
+            // ==========================================
+
+            // Completely override the current plan with the new plan's data
+            subscription.mealsPlanId = newPlan._id;
+            subscription.planType = newPlan.planType;
+            subscription.amount = newPrice;
+            subscription.maxLimits = newPlan.limits;
+        }
+
+        // 3. Update the status if changed
+        if (status) {
+            subscription.status = status;
+        }
+
+        await subscription.save();
+
+        res.status(200).json({ 
+            success: true, 
+            message: "Subscription and billing successfully updated!", 
+            data: subscription 
+        });
+
+    } catch (error) {
+        console.error("Update Subscription Error:", error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+
+
+// ==========================================
+// DELETE SUBSCRIPTION (Manager Only)
+// ==========================================
+export const deleteSubscriptionByManager = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const hostelId = req.user.hostelId;
+
+        // 1. Find and delete the subscription, ensuring it belongs to this manager's hostel
+        const deletedSub = await StudentSubscription.findOneAndDelete({ 
+            _id: id, 
+            hostelId: hostelId 
+        });
+
+        if (!deletedSub) {
+            return res.status(404).json({ success: false, message: "Subscription not found or already deleted." });
+        }
+
+        // 2. ✨ NEW: Automatically delete any fines associated with this subscription
+        await Fine.deleteMany({ 
+            subscriptionId: deletedSub._id 
+        });
+
+        res.status(200).json({ 
+            success: true, 
+            message: "Subscription and associated bills successfully deleted." 
+        });
+
+    } catch (error) {
+        console.error("Delete Subscription Error:", error);
         res.status(500).json({ success: false, message: error.message });
     }
 };

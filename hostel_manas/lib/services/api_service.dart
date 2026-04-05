@@ -1096,4 +1096,108 @@ class ApiService {
       rethrow;
     }
   }
+
+  // Fetch all complains for the manager's hostel
+  Future<List<dynamic>> getComplains() async {
+    try {
+      final response = await http.get(
+        Uri.parse(
+          "$baseUrl/complains/all",
+        ), // Adjust this route to match your Node.js backend
+        headers: await _getHeaders(),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data['complains'] ?? [];
+      } else {
+        throw Exception("Failed to load complains");
+      }
+    } catch (e) {
+      debugPrint("Get Complains Error: $e");
+      rethrow;
+    }
+  }
+
+  // Update complain status (e.g., from Pending to Resolved)
+  Future<Map<String, dynamic>> updateComplainStatus(
+    String complainId,
+    String status,
+  ) async {
+    try {
+      final response = await http.put(
+        Uri.parse(
+          "$baseUrl/complains/$complainId/status",
+        ), // Adjust route if needed
+        headers: await _getHeaders(),
+        body: json.encode({"status": status}),
+      );
+
+      return json.decode(response.body);
+    } catch (e) {
+      debugPrint("Update Complain Error: $e");
+      rethrow;
+    }
+  }
+
+  // Fetch all meal subscriptions for the manager's hostel
+  Future<List<dynamic>> getManagerSubscriptions() async {
+    try {
+      final response = await http.get(
+        Uri.parse(
+          "$baseUrl/meal-plan/manager/getAllSubscriptions",
+        ), // Adjust route if needed
+        headers: await _getHeaders(),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data['data'] ?? [];
+      } else {
+        throw Exception("Failed to load subscriptions");
+      }
+    } catch (e) {
+      debugPrint("Get Manager Subscriptions Error: $e");
+      rethrow;
+    }
+  }
+
+  // Update subscription (Manager)
+  Future<Map<String, dynamic>> updateSubscriptionByManager(
+    String subId,
+    String planId,
+    String status,
+  ) async {
+    try {
+      final response = await http.put(
+        Uri.parse(
+          "$baseUrl/meal-plan/manager/updateSubscription/$subId",
+        ), // Ensure this matches your route
+        headers: await _getHeaders(),
+        body: json.encode({"planId": planId, "status": status}),
+      );
+
+      return json.decode(response.body);
+    } catch (e) {
+      debugPrint("Update Sub Error: $e");
+      rethrow;
+    }
+  }
+
+  // Delete subscription (Manager)
+  Future<Map<String, dynamic>> deleteSubscriptionByManager(String subId) async {
+    try {
+      final response = await http.delete(
+        Uri.parse(
+          "$baseUrl/meal-plan/manager/deleteSubscription/$subId",
+        ), // Ensure this matches your route
+        headers: await _getHeaders(),
+      );
+
+      return json.decode(response.body);
+    } catch (e) {
+      debugPrint("Delete Sub Error: $e");
+      rethrow;
+    }
+  }
 }

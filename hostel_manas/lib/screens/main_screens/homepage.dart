@@ -420,7 +420,7 @@ class _HomepageState extends State<Homepage> {
           ),
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
-            BoxShadow(
+           const BoxShadow(
               color: Colors.black12,
               blurRadius: 10,
               offset: const Offset(0, 5),

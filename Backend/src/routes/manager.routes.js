@@ -34,6 +34,7 @@ router.get("/get-routine", protect, getWeeklyRoutine);
 router.get("/Status/:studentId", protect, getStudentSummary);
 
 
+
 router.route("/sattingData")
     .get(protect, getSattingData)
     .post(protect, saveSattingData);
