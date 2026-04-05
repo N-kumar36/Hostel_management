@@ -691,17 +691,22 @@ export const toggleServeStatus = async (req, res) => {
       status: { $in: ["active", "completed", "pending"] }
     }).sort({ createdAt: -1 });
 
+    // ✨ FIXED: If no subscription exists, flag them to be treated as a Guest instead of throwing an error!
+    let isUnsubscribedGuest = false;
     if (!subscription && (!vote || !vote.isGuest)) {
-      return res.status(400).json({ success: false, message: "No active plan found for this student" });
+      isUnsubscribedGuest = true; 
     }
 
     // --- AUTO FINE LOGIC ---
     let fineGenerated = false;
-    if (isNowServed && (!vote || !vote.isGuest)) {
-      const currentUsage = subscription.usage[currentMealType] || 0;
-      const maxAllowed = subscription.maxLimits[currentMealType] || 0;
+    if (isNowServed && (!vote || !vote.isGuest || isUnsubscribedGuest)) {
+      
+      // Safely check usage (if they don't have a sub, usage is treated as 0 and max is 0)
+      const currentUsage = subscription ? (subscription.usage[currentMealType] || 0) : 0;
+      const maxAllowed = subscription ? (subscription.maxLimits[currentMealType] || 0) : 0;
 
-      if (currentUsage >= maxAllowed) {
+      // If they are unsubscribed, OR they exceeded their plan limits
+      if (isUnsubscribedGuest || currentUsage >= maxAllowed) {
         const priceList = await FinePrice.findOne({ hostelId: currentHostelId });
         const fineAmount = priceList ? priceList.prices[currentMealType] : 50;
 
@@ -711,9 +716,11 @@ export const toggleServeStatus = async (req, res) => {
           studentId: currentUserId,
           managerId: manager ? manager._id : currentUserId,
           hostelId: currentHostelId,
-          title: `Extra Meal Charge - ${currentMealType.toUpperCase()}`,
+          title: isUnsubscribedGuest ? `Walk-in Meal Charge - ${currentMealType.toUpperCase()}` : `Extra Meal Charge - ${currentMealType.toUpperCase()}`,
           amount: fineAmount,
-          description: `Automatically generated: Limit for ${currentMealType} was ${maxAllowed}. Student is consuming an extra plate.`,
+          description: isUnsubscribedGuest 
+              ? `Student has no active subscription. Billed for a single walk-in ${currentMealType} plate.` 
+              : `Automatically generated: Limit for ${currentMealType} was ${maxAllowed}. Student is consuming an extra plate.`,
           status: "pending",
           date: new Date()
         });
@@ -722,10 +729,10 @@ export const toggleServeStatus = async (req, res) => {
       }
     }
 
-    // 4. Update Subscription Usage
+    // 4. Update Subscription Usage (ONLY if they actually have a subscription)
     let updatedSubscriptionId = null;
 
-    if ((!vote || !vote.isGuest) && subscription) {
+    if (!isUnsubscribedGuest && (!vote || !vote.isGuest) && subscription) {
       const incValue = isNowServed ? 1 : -1;
       const updateKey = `usage.${currentMealType}`;
 
@@ -747,7 +754,7 @@ export const toggleServeStatus = async (req, res) => {
         mealId: mealIdToUse,
         timeSlot: timeSlot.toLowerCase(),
         mealType: currentMealType,
-        isGuest: false,
+        isGuest: isUnsubscribedGuest ? true : false, // ✨ FIXED: Mark as guest if no sub!
         isServed: true,
         servedAt: new Date(),
         votedAt: new Date()
@@ -756,10 +763,12 @@ export const toggleServeStatus = async (req, res) => {
     } else {
       vote.isServed = isNowServed;
       vote.servedAt = isNowServed ? new Date() : null;
+      // If it was an existing vote but they had no sub, we could optionally force isGuest=true here
+      if (isUnsubscribedGuest) vote.isGuest = true;
       await vote.save();
     }
 
-    // 6. Run the auto-completion check!
+    // 6. Run the auto-completion check! (Only if they have a subscription)
     if (updatedSubscriptionId) {
       if (typeof consumptionOverviewCheck === 'function') {
         await consumptionOverviewCheck(updatedSubscriptionId);
@@ -768,26 +777,26 @@ export const toggleServeStatus = async (req, res) => {
       }
     }
 
-    // ✨ 7. NEW: Generate the In-App Notification
+    // 7. Generate the In-App Notification
     try {
-      if (isNowServed && (!vote || !vote.isGuest)) {
+      if (isNowServed && (!vote || !vote.isGuest || isUnsubscribedGuest)) {
         let notifMessage = `You have consumed your ${timeSlot.toLowerCase()} meal: ${currentMealType.toUpperCase()}.`;
 
-        if (fineGenerated) {
-          notifMessage += ` Note: You exceeded your plan limit. An extra meal fine has been generated.`;
+        if (isUnsubscribedGuest) {
+          notifMessage += ` Note: You have no active subscription. A single-meal bill has been generated.`;
+        } else if (fineGenerated) {
+          notifMessage += ` Note: You exceeded your plan limit. An extra meal bill has been generated.`;
         }
 
         await Notification.create({
           userId: currentUserId,
           hostelId: currentHostelId,
-          title: fineGenerated ? "Extra Meal Served" : "Meal Served",
+          title: isUnsubscribedGuest ? "Walk-in Meal Served" : (fineGenerated ? "Extra Meal Served" : "Meal Served"),
           message: notifMessage,
           type: "served"
         });
       }
     } catch (notifErr) {
-      // We wrap this in a try-catch so that if the notification fails, 
-      // the meal is still successfully served without crashing the app.
       console.error("Failed to create notification:", notifErr.message);
     }
 
@@ -795,9 +804,9 @@ export const toggleServeStatus = async (req, res) => {
     res.json({
       success: true,
       message: isNowServed
-        ? (fineGenerated
-          ? `Extra ${currentMealType} served. Fine generated!`
-          : `Marked ${currentMealType} as served`)
+        ? (isUnsubscribedGuest 
+            ? `Walk-in ${currentMealType} served. Bill generated!` 
+            : (fineGenerated ? `Extra ${currentMealType} served. Fine generated!` : `Marked ${currentMealType} as served`))
         : "Service undone",
       isServed: vote.isServed,
       mealType: currentMealType
