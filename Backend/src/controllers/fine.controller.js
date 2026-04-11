@@ -204,9 +204,9 @@ export const updateFineStatusDelete = async (req, res) => {
 
     // 2. ✨ SMART SYNC LOGIC: Delete orphaned subscription
     // If this bill was for a meal plan, delete the pending meal plan too!
-    if (deletedFine.isMealPackage && deletedFine.subscriptionId) {
-      await StudentSubscription.findByIdAndDelete(deletedFine.subscriptionId);
-    }
+    // if (deletedFine.isMealPackage && deletedFine.subscriptionId) {
+    //   await StudentSubscription.findByIdAndDelete(deletedFine.subscriptionId);
+    // }
 
     // 3. ✨ FIXED: Send the success response back to Flutter!
     res.status(200).json({
