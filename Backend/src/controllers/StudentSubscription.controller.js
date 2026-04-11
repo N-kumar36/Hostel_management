@@ -204,7 +204,7 @@ export const updateSubscriptionByManager = async (req, res) => {
         const hostelId = req.user.hostelId;
         const managerId = req.user._id || req.user.id; // Safely get manager ID
 
-        // 1. Find the subscription
+        // 1. Find the existing subscription
         const subscription = await StudentSubscription.findOne({ _id: id, hostelId });
         if (!subscription) {
             return res.status(404).json({ success: false, message: "Subscription not found" });
@@ -217,55 +217,32 @@ export const updateSubscriptionByManager = async (req, res) => {
                 return res.status(404).json({ success: false, message: "New meal plan not found" });
             }
 
-            const oldPrice = subscription.amount;
+            const oldPlanType = subscription.planType;
             const newPrice = newPlan.monthlyPrice;
 
             // ==========================================
-            // ✨ SMART FINE & BILLING LOGIC ✨
+            // ✨ SMART FINE & BILLING LOGIC (NO CREATION/DELETION) ✨
             // ==========================================
-            if (newPrice < oldPrice) {
-                // DOWNGRADE (e.g., Mistakenly bought 60 meals (1500), changing down to 30 meals (1000))
-                
-                // 1. Delete the old incorrect pending fine
-                await Fine.deleteMany({ 
-                    subscriptionId: subscription._id, 
-                    status: "pending" 
-                });
+            
+            // Find the existing fine associated with this subscription
+            const existingFine = await Fine.findOne({ 
+                subscriptionId: subscription._id, 
+                isMealPackage: true 
+            });
 
-                // 2. Create the new corrected fine for the new full price (e.g., 1000)
-                await Fine.create({
-                    studentId: subscription.studentId,
-                    managerId: managerId,
-                    hostelId: hostelId,
-                    title: `Mess Bill - ${newPlan.planType}`,
-                    amount: newPrice,
-                    description: `Manager corrected plan to ${newPlan.planType}.`,
-                    isMealPackage: true,
-                    MealPlanID: newPlan._id,
-                    subscriptionId: subscription._id,
-                    status: "pending"
-                });
-
-            } else if (newPrice > oldPrice) {
-                // UPGRADE (e.g., Currently on 30 meals (1000), upgrading to 60 meals (1500))
+            if (existingFine) {
+                // Safely update ONLY the billing details. 
+                // The paymentScreenshot and status remain completely untouched!
+                existingFine.title = `Mess Bill - ${newPlan.planType}`;
+                existingFine.amount = newPrice; 
+                existingFine.description = `Manager updated plan from ${oldPlanType} to ${newPlan.planType}.`;
+                existingFine.MealPlanID = newPlan._id;
                 
-                // Create an additional fine for ONLY the difference (e.g., 500)
-                await Fine.create({
-                    studentId: subscription.studentId,
-                    managerId: managerId,
-                    hostelId: hostelId,
-                    title: `Plan Upgrade Fee - ${newPlan.planType}`,
-                    amount: newPrice - oldPrice, // Math: 1500 - 1000 = 500
-                    description: `Manager upgraded plan from ${subscription.planType} to ${newPlan.planType}.`,
-                    isMealPackage: true,
-                    MealPlanID: newPlan._id,
-                    subscriptionId: subscription._id,
-                    status: "pending"
-                });
+                await existingFine.save();
             }
             // ==========================================
 
-            // Completely override the current plan with the new plan's data
+            // Safely update the current subscription plan's data
             subscription.mealsPlanId = newPlan._id;
             subscription.planType = newPlan.planType;
             subscription.amount = newPrice;
@@ -277,11 +254,12 @@ export const updateSubscriptionByManager = async (req, res) => {
             subscription.status = status;
         }
 
+        // Save the updated subscription
         await subscription.save();
 
         res.status(200).json({ 
             success: true, 
-            message: "Subscription and billing successfully updated!", 
+            message: "Subscription and billing successfully updated without losing data!", 
             data: subscription 
         });
 
