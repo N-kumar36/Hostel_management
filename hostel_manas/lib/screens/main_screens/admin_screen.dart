@@ -11,14 +11,14 @@ import 'package:HostelMess/services/api_service.dart';
 import 'package:flutter/material.dart';
 import '../managerScreen/ComplainsPage.dart';
 
-class ManagerPanelPage extends StatefulWidget {
-  const ManagerPanelPage({super.key});
+class AdminScreen extends StatefulWidget {
+  const AdminScreen({super.key});
 
   @override
-  State<ManagerPanelPage> createState() => _ManagerPanelPageState();
+  State<AdminScreen> createState() => _AdminScreenState();
 }
 
-class _ManagerPanelPageState extends State<ManagerPanelPage> {
+class _AdminScreenState extends State<AdminScreen> {
   final api = ApiService();
 
   int pendingStudentCount = 0;
@@ -52,7 +52,7 @@ class _ManagerPanelPageState extends State<ManagerPanelPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Manager Panel"),
+        title: const Text("Admin Panel"),
         centerTitle: true,
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
@@ -144,20 +144,20 @@ class _ManagerPanelPageState extends State<ManagerPanelPage> {
                 );
               },
             ),
-            // _adminCard(
-            //   context,
-            //   "Generate Fines",
-            //   Icons.monetization_on_outlined,
-            //   Colors.red,
-            //   () {
-            //     Navigator.push(
-            //       context,
-            //       MaterialPageRoute(
-            //         builder: (context) => const FineManagementPage(),
-            //       ),
-            //     );
-            //   },
-            // ),
+            _adminCard(
+              context,
+              "Finance Management",
+              Icons.monetization_on_outlined,
+              Colors.red,
+              () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const FineManagementPage(),
+                  ),
+                );
+              },
+            ),
             _adminCard(
               context,
               "Guest Meal",
@@ -173,23 +173,23 @@ class _ManagerPanelPageState extends State<ManagerPanelPage> {
               },
               badgeCount: pendingGuestMealCount, // Pass the count here
             ),
-            // _adminCard(
-            //   context,
-            //   "Meal Subscriptions",
-            //   Icons.food_bank_rounded,
-            //   Colors.green,
-            //   () {
-            //     Navigator.push(
-            //       context,
-            //       MaterialPageRoute(
-            //         builder: (context) =>
-            //             const MealSubscriptionsPage(), // <-- FIXED THIS
-            //       ),
-            //     ).then((_) => _fetchCounts()); // Refresh count when returning
-            //   },
-            //   badgeCount:
-            //       pendingGuestMealCount, // Update this if you have a pending sub count
-            // ),
+            _adminCard(
+              context,
+              "Meal Subscriptions",
+              Icons.food_bank_rounded,
+              Colors.green,
+              () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) =>
+                        const MealSubscriptionsPage(), // <-- FIXED THIS
+                  ),
+                ).then((_) => _fetchCounts()); // Refresh count when returning
+              },
+              badgeCount:
+                  pendingGuestMealCount, // Update this if you have a pending sub count
+            ),
             _adminCard(
               context,
               "Complains",

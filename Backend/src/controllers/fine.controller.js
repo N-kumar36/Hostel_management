@@ -1,6 +1,12 @@
 import Fine from "../models/fine.model.js";
 import User from "../models/User.js";
 import StudentSubscription from "../models/StudentSubscription.js";
+import MealPlan from "../models/MealPlan.js";
+import FinePrice from "../models/FinePrice.js";
+import moment from "moment";
+
+
+
 
 // import { fineUploadFirebase } from "../utils/uploadHelper.js"; // Ensure your uploader is imported
 
@@ -86,12 +92,6 @@ export const payFine = async (req, res) => {
 
 
 
-
-
-
-
-
-
 export const getPendingFines = async (req, res) => {
   try {
     const hostelId = req.user.hostelId;
@@ -155,9 +155,9 @@ export const updateFineStatus = async (req, res) => {
     );
 
     if (!updatedFine) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Bill not found" 
+      return res.status(404).json({
+        success: false,
+        message: "Bill not found"
       });
     }
 
@@ -174,18 +174,222 @@ export const updateFineStatus = async (req, res) => {
       );
     }
 
-    res.status(200).json({ 
-      success: true, 
+    res.status(200).json({
+      success: true,
       message: `Bill marked as ${status}`,
-      data: updatedFine 
+      data: updatedFine
     });
 
   } catch (error) {
     console.error("Error updating fine status:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: error.message 
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+export const updateFineStatusDelete = async (req, res) => {
+  try {
+    const { id } = req.params; // Matches fineId from your Dart code
+
+    // 1. Find and delete the Fine document
+    const deletedFine = await Fine.findByIdAndDelete(id);
+
+    if (!deletedFine) {
+      return res.status(404).json({
+        success: false,
+        message: "Bill not found or already deleted"
+      });
+    }
+
+    // 2. ✨ SMART SYNC LOGIC: Delete orphaned subscription
+    // If this bill was for a meal plan, delete the pending meal plan too!
+    if (deletedFine.isMealPackage && deletedFine.subscriptionId) {
+      await StudentSubscription.findByIdAndDelete(deletedFine.subscriptionId);
+    }
+
+    // 3. ✨ FIXED: Send the success response back to Flutter!
+    res.status(200).json({
+      success: true,
+      message: "Bill deleted successfully."
+    });
+
+  } catch (error) {
+    console.error("Error deleting fine:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 };
 
+
+
+export const convertFineToSubscription = async (req, res) => {
+  console.log("Convert Fine to Subscription called with params:", req.params, "and body:", req.body);
+  try {
+    const { id } = req.params; // Fine ID
+    const { planId } = req.body;
+    const hostelId = req.user.hostelId;
+
+    // 1. Validate Fine & Plan
+    const fine = await Fine.findOne({ _id: id, hostelId });
+    if (!fine) return res.status(404).json({ success: false, message: "Fine not found" });
+
+    const plan = await MealPlan.findOne({ _id: planId, hostelId });
+    if (!plan) return res.status(404).json({ success: false, message: "Meal Plan not found" });
+
+    const currentMonth = moment().format("MMMM YYYY");
+
+    // ✨ 2. EXTRACT MEAL TYPE FROM FINE
+    const combinedText = ((fine.title || "") + " " + (fine.description || "")).toLowerCase();
+    let consumedType = null;
+    const mealTypes = ["veg", "egg", "paneer", "chicken", "fish", "mutton"];
+
+    for (const type of mealTypes) {
+      if (combinedText.includes(type)) {
+        consumedType = type;
+        break; 
+      }
+    }
+
+    // 3. Check if student already has a subscription this month
+    let subscription = await StudentSubscription.findOne({
+      studentId: fine.studentId,
+      status: { $in: ["pending", "active"] }
+    });
+
+    if (subscription) {
+      // =========================================================
+      // SCENARIO A: STUDENT ALREADY HAS A PLAN
+      // =========================================================
+      
+      // 1. Add the consumed meal to their existing plan usage
+      if (consumedType) {
+        subscription.usage[consumedType] = (subscription.usage[consumedType] || 0) + 1;
+        subscription.markModified("usage"); 
+      }
+      await subscription.save();
+
+      // 2. ✨ DELETE the fine entirely! They don't need a bill because their plan covers it.
+      await Fine.findByIdAndDelete(fine._id);
+
+      return res.status(200).json({
+        success: true,
+        message: `Added ${consumedType ? consumedType : 'meal'} to existing plan and deleted the extra fine.`
+      });
+
+    } else {
+      // =========================================================
+      // SCENARIO B: STUDENT DOES NOT HAVE A PLAN YET
+      // =========================================================
+      
+      const initialUsage = { veg: 0, egg: 0, paneer: 0, chicken: 0, fish: 0, mutton: 0 };
+      
+      if (consumedType) {
+        initialUsage[consumedType] = 1; 
+      }
+
+      // 1. Create the new subscription
+      subscription = await StudentSubscription.create({
+        studentId: fine.studentId,
+        hostelId: hostelId,
+        mealsPlanId: plan._id,
+        month: currentMonth,
+        planType: plan.planType,
+        amount: plan.monthlyPrice,
+        maxLimits: plan.limits,
+        status: fine.status === "success" ? "active" : "pending",
+        usage: initialUsage
+      });
+
+      // 2. Transform the Fine into their new Subscription Receipt
+      const oldTitle = fine.title;
+      fine.isMealPackage = true;
+      fine.MealPlanID = plan._id;
+      fine.subscriptionId = subscription._id;
+      fine.title = `Converted to Plan: ${plan.planType}`;
+      fine.amount = plan.monthlyPrice;
+      fine.description = `Converted by manager. Included 1 ${consumedType ? consumedType.toUpperCase() : 'Meal'}. Old fine was: ${oldTitle}`;
+
+      await fine.save();
+
+      return res.status(200).json({
+        success: true,
+        message: "Created new meal subscription and converted fine into receipt!"
+      });
+    }
+
+  } catch (error) {
+    console.error("Convert Fine Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==========================================
+// CONVERT MEAL PACK TO INDIVIDUAL GUEST MEALS
+// ==========================================
+export const convertMealPackToGuestMeal = async (req, res) => {
+  try {
+    const { id } = req.params; // Original Fine ID
+    const hostelId = req.user.hostelId;
+    const managerId = req.user._id || req.user.id;
+
+    // 1. Find the original Fine
+    const originalFine = await Fine.findOne({ _id: id, hostelId });
+    if (!originalFine) return res.status(404).json({ success: false, message: "Bill not found" });
+    if (!originalFine.isMealPackage) return res.status(400).json({ success: false, message: "This is already a regular bill." });
+
+    if (!originalFine.subscriptionId) {
+      // Edge case: No subscription attached. Just cancel the bill.
+      await Fine.findByIdAndDelete(id);
+      return res.status(200).json({ success: true, message: "Package cancelled (no active subscription found)." });
+    }
+
+    // 2. Fetch Subscription and Prices
+    const subscription = await StudentSubscription.findById(originalFine.subscriptionId);
+    const priceList = await FinePrice.findOne({ hostelId });
+
+    // Fallback prices if not configured in DB
+    const prices = priceList ? priceList.prices : { veg: 35, egg: 45, paneer: 45, chicken: 65, fish: 55, mutton: 85 };
+
+    if (subscription) {
+      const u = subscription.usage;
+      const mealTypes = ['veg', 'egg', 'paneer', 'chicken', 'fish', 'mutton'];
+
+      // 3. Create INDIVIDUAL fines for each consumed meal type
+      for (const type of mealTypes) {
+        if (u[type] > 0) {
+          const cost = u[type] * (prices[type] || 0);
+          const typeName = type.charAt(0).toUpperCase() + type.slice(1); // Capitalize
+
+          await Fine.create({
+            studentId: originalFine.studentId,
+            managerId: managerId,
+            hostelId: hostelId,
+            title: `Guest Meal - ${u[type]} ${typeName}`,
+            amount: cost,
+            description: `Converted from cancelled meal package. Consumed ${u[type]} plates at ₹${prices[type]} each.`,
+            isMealPackage: false,
+            status: "pending"
+          });
+        }
+      }
+
+      // 4. Delete the subscription entirely
+      await StudentSubscription.findByIdAndDelete(subscription._id);
+    }
+
+    // 5. Delete the original massive meal package fine
+    await Fine.findByIdAndDelete(originalFine._id);
+
+    res.status(200).json({
+      success: true,
+      message: "Successfully converted to individual guest meal bills!"
+    });
+
+  } catch (error) {
+    console.error("Convert to Guest Meal Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};

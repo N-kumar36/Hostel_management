@@ -21,10 +21,16 @@ class _ServeMealPageState extends State<ServeMealPage> {
   bool isLoading = false;
   String? processingId;
 
-  // ✅ Computed getters for the summary counters
+  // ✨ FIXED: Computed getters for the summary counters
   int get servedCount => _allVotes.where((v) => v['isServed'] == true).length;
-  int get notServedCount =>
-      _allVotes.where((v) => v['isServed'] == false).length;
+  
+  int get notServedCount => _allVotes.where((v) {
+        bool isServed = v['isServed'] == true;
+        String choice = v['choice']?.toString() ?? "";
+        bool hasVoted = choice.isNotEmpty;
+        // ONLY count them as Pending if they haven't been served AND they actually voted
+        return !isServed && hasVoted; 
+      }).length;
 
   @override
   void initState() {
@@ -71,11 +77,20 @@ class _ServeMealPageState extends State<ServeMealPage> {
 
   void _sortAndFilterList() {
     _allVotes.sort((a, b) {
-      bool servedA = a['isServed'] ?? false;
-      bool servedB = b['isServed'] ?? false;
-      if (servedA == servedB) return 0;
-      return servedA ? 1 : -1;
+      // Helper function to assign priority
+      int getPriority(Map<String, dynamic> vote) {
+        bool isServed = vote['isServed'] ?? false;
+        String choice = vote['choice']?.toString() ?? "";
+        bool hasVoted = choice.isNotEmpty;
+
+        if (!isServed && hasVoted) return 1; // Top priority: Voted, but not yet served
+        if (isServed) return 2;              // Middle priority: Served
+        return 3;                            // Lowest priority: Not Voted (Walk-ins)
+      }
+
+      return getPriority(a).compareTo(getPriority(b));
     });
+
     _onSearchChanged();
   }
 
@@ -92,7 +107,6 @@ class _ServeMealPageState extends State<ServeMealPage> {
     setState(() => processingId = uniqueId);
 
     try {
-      // ✅ FIX: Use studentData instead of undefined 'vote' variable
       final String? vId = studentData['voteId']?.toString();
       final String sId = studentData['studentId']?.toString() ?? "";
       String formattedDate = DateFormat('dd/MM/yyyy').format(selectedDate);
@@ -107,9 +121,8 @@ class _ServeMealPageState extends State<ServeMealPage> {
       if (mounted) {
         if (res['success'] == true) {
           final bool serverStatus = res['isServed'] ?? !currentValue;
-          
-          // The backend should return the mealType that was resolved from the WeeklyRoutine
           final String resolvedMealType = res['mealType'] ?? "Served";
+          final String? returnedVoteId = res['voteId']?.toString();
 
           setState(() {
             final masterIndex = _allVotes.indexWhere(
@@ -122,8 +135,13 @@ class _ServeMealPageState extends State<ServeMealPage> {
             if (masterIndex != -1) {
               _allVotes[masterIndex]['isServed'] = serverStatus;
 
-              // If they hadn't voted and we just served them, update their choice in UI
-              if (serverStatus && (_allVotes[masterIndex]['choice'] == null || _allVotes[masterIndex]['choice'] == "")) {
+              if (returnedVoteId != null) {
+                _allVotes[masterIndex]['voteId'] = returnedVoteId;
+              }
+
+              if (serverStatus &&
+                  (_allVotes[masterIndex]['choice'] == null ||
+                      _allVotes[masterIndex]['choice'] == "")) {
                 _allVotes[masterIndex]['choice'] = resolvedMealType;
               }
             }
@@ -132,7 +150,6 @@ class _ServeMealPageState extends State<ServeMealPage> {
             processingId = null;
           });
 
-          // Show the custom message from the backend (e.g. "Fine generated!")
           _showSnackBar(
             res['message'] ?? (serverStatus ? "Meal served!" : "Status updated"),
             Colors.green,
@@ -156,7 +173,7 @@ class _ServeMealPageState extends State<ServeMealPage> {
       SnackBar(
         content: Text(message),
         backgroundColor: color,
-        duration: const Duration(seconds: 2), // Slightly longer so they can read fine notices
+        duration: const Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -283,7 +300,7 @@ class _ServeMealPageState extends State<ServeMealPage> {
           const SizedBox(width: 12),
           _buildCounterCard(
             "PENDING",
-            notServedCount.toString(),
+            notServedCount.toString(), // ✨ Now uses the updated logic
             Colors.orange,
             Icons.pending_actions,
           ),

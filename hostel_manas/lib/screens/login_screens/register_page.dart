@@ -20,7 +20,7 @@ class _RegisterPageState extends State<RegisterPage> {
   final yearCtrl = TextEditingController();
 
   final List<String> departments = [
-    "B.Tech", "LLB", "MA", "MSE", "MBA", "M.Tech", "PhD", "Bsc", "Msc", "BCA", "MCA"
+    "B.Tech", "LLB", "MA", "MSE", "MBA", "M.Tech", "PhD", "Bsc", "Msc", "BCA", "MCA", "BBA", "Others"
   ];
   final List<String> years = [
     "1st Year", "2nd Year", "3rd Year", "4th Year", "5th Year",

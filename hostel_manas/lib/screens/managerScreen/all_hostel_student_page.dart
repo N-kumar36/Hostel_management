@@ -22,6 +22,16 @@ class _AllHostelStudentPageState extends State<AllHostelStudentPage> {
   String selectedDept = "All";
   String selectedYear = "All";
 
+  // ✨ FIXED: Cleaned up duplicates and fixed missing commas in the department list
+  final List<String> departmentList = [
+    "All", "B.Tech", "M.Tech", "B.Sc", "M.Sc", "BCA", "MCA", 
+    "BBA", "MBA", "LLB", "MA", "MSE", "PhD", "Others"
+  ];
+
+  final List<String> yearList = [
+    "All", "1st Year", "2nd Year", "3rd Year", "4th Year"
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -53,19 +63,21 @@ class _AllHostelStudentPageState extends State<AllHostelStudentPage> {
 
     setState(() {
       filteredStudents = allStudents.where((student) {
-        // Search Logic (Name, Reg, or Email)
-        final matchesSearch =
-            student['name'].toString().toLowerCase().contains(query) ||
-            student['regNum'].toString().toLowerCase().contains(query) ||
-            student['email'].toString().toLowerCase().contains(query);
+        // ✨ FIXED: Safely extract strings and make everything lowercase to ensure perfect matching
+        final name = (student['name'] ?? "").toString().toLowerCase();
+        final regNum = (student['regNum'] ?? "").toString().toLowerCase();
+        final email = (student['email'] ?? "").toString().toLowerCase();
+        final department = (student['department'] ?? "").toString().toLowerCase();
+        final year = (student['year'] ?? "").toString().toLowerCase();
+
+        // Search Logic
+        final matchesSearch = name.contains(query) || regNum.contains(query) || email.contains(query);
 
         // Filter Logic (Department)
-        final matchesDept =
-            selectedDept == "All" || student['department'] == selectedDept;
+        final matchesDept = selectedDept == "All" || department == selectedDept.toLowerCase();
 
         // Filter Logic (Year)
-        final matchesYear =
-            selectedYear == "All" || student['year'] == selectedYear;
+        final matchesYear = selectedYear == "All" || year == selectedYear.toLowerCase();
 
         return matchesSearch && matchesDept && matchesYear;
       }).toList();
@@ -114,7 +126,7 @@ class _AllHostelStudentPageState extends State<AllHostelStudentPage> {
                     Expanded(
                       child: _buildFilterDropdown(
                         "Dept",
-                        ["All", "B.Tech", "MBA", "MCA", "B.Sc"],
+                        departmentList, // Using the clean list
                         (val) {
                           selectedDept = val!;
                           _applySearchAndFilter();
@@ -126,7 +138,7 @@ class _AllHostelStudentPageState extends State<AllHostelStudentPage> {
                     Expanded(
                       child: _buildFilterDropdown(
                         "Year",
-                        ["All", "1st Year", "2nd Year", "3rd Year", "4th Year"],
+                        yearList, // Using the clean list
                         (val) {
                           selectedYear = val!;
                           _applySearchAndFilter();
@@ -206,7 +218,6 @@ class _AllHostelStudentPageState extends State<AllHostelStudentPage> {
         border: Border.all(color: Colors.grey.shade200),
       ),
       child: InkWell(
-        // ✅ ADD THIS
         borderRadius: BorderRadius.circular(12),
         onTap: () {
           Navigator.push(
@@ -222,17 +233,17 @@ class _AllHostelStudentPageState extends State<AllHostelStudentPage> {
             backgroundImage: photo.isNotEmpty ? NetworkImage(photo) : null,
             child: photo.isEmpty
                 ? Text(
-                    student['name'][0].toUpperCase(),
+                    student['name']?[0].toUpperCase() ?? "?",
                     style: const TextStyle(color: Colors.purple),
                   )
                 : null,
           ),
           title: Text(
-            student['name'],
+            student['name'] ?? "Unknown",
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
           subtitle: Text(
-            "${student['department']} | ${student['year']}\nReg: ${student['regNum']}",
+            "${student['department'] ?? 'N/A'} | ${student['year'] ?? 'N/A'}\nReg: ${student['regNum'] ?? 'N/A'}",
           ),
           trailing: const Icon(
             Icons.arrow_forward_ios,
@@ -293,10 +304,9 @@ class _AllHostelStudentPageState extends State<AllHostelStudentPage> {
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const Divider(),
-            _detailRow(Icons.phone, "Phone", student['phone']),
-            _detailRow(Icons.email, "Email", student['email']),
-            // _detailRow(Icons.numbers, "Roll No", student['roll'] ?? "N/A"),
-            _detailRow(Icons.assignment_ind, "Registration", student['regNum']),
+            _detailRow(Icons.phone, "Phone", student['phone'] ?? "N/A"),
+            _detailRow(Icons.email, "Email", student['email'] ?? "N/A"),
+            _detailRow(Icons.assignment_ind, "Registration", student['regNum'] ?? "N/A"),
             const SizedBox(height: 20),
           ],
         ),

@@ -40,7 +40,7 @@ class HostelRulesWidget extends StatelessWidget {
           icon: Icons.payments,
           color: Colors.green.shade700,
           content: [
-            "₹1600 Allocation Fee: Monthly fee due within first 5 days.",
+            "₹1500 Allocation Fee: Monthly fee due within first 5 days.",
             "₹1000 Pro-Rata: Reduced rate for dining only 15 days/month.",
             "Guest Charges: Extra charges apply for guests/friends.",
           ],

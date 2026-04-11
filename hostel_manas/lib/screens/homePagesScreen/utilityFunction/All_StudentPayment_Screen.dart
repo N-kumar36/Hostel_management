@@ -20,6 +20,26 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
   List<dynamic> allPayments = [];
   List<dynamic> filteredPayments = [];
 
+  // Computed getters for the financial summary
+  double _getAmount(dynamic val) {
+    if (val == null) return 0.0;
+    if (val is num) return val.toDouble();
+    return double.tryParse(val.toString()) ?? 0.0;
+  }
+
+  double get totalAmount => allPayments.fold(0.0, (sum, p) => sum + _getAmount(p['amount']));
+  
+  double get paidAmount => allPayments
+      .where((p) => p['status']?.toString().toLowerCase() == 'success')
+      .fold(0.0, (sum, p) => sum + _getAmount(p['amount']));
+      
+  double get pendingAmount => allPayments
+      .where((p) {
+        final status = p['status']?.toString().toLowerCase();
+        return status == 'pending' || status == 'processing';
+      })
+      .fold(0.0, (sum, p) => sum + _getAmount(p['amount']));
+
   @override
   void initState() {
     super.initState();
@@ -119,7 +139,10 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
             ),
           ),
 
-          // 3. Search Bar & Filters
+          // 3. Financial Summary Cards
+          _buildSummarySection(),
+
+          // 4. Search Bar & Filters
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Column(
@@ -154,7 +177,7 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
 
           const Divider(height: 30),
 
-          // 4. Student List
+          // 5. Student List
           Expanded(
             child: isLoading
                 ? Center(child: CircularProgressIndicator(color: themeColor))
@@ -179,6 +202,9 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
                       final String photoUrl = student['photoURL'] ?? "";
                       final String title = payment['title'] ?? "Payment";
                       final amount = payment['amount'] ?? 0;
+                      
+                      // Extract screenshot URL safely
+                      final String screenshotUrl = payment['paymentScreenshot'] ?? "";
 
                       final String status = (payment['status'] ?? "pending")
                           .toString()
@@ -208,6 +234,27 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
                           side: BorderSide(color: Colors.grey.shade200),
                         ),
                         child: ListTile(
+                          // ✨ NEW: Handle tap to show screenshot
+                          onTap: () {
+                            if (isPaid) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => PaymentScreenshotScreen(
+                                    imageUrl: screenshotUrl,
+                                    studentName: name,
+                                  ),
+                                ),
+                              );
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text("This payment is still pending."),
+                                  duration: Duration(seconds: 1),
+                                ),
+                              );
+                            }
+                          },
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 16,
                             vertical: 8,
@@ -247,7 +294,7 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
                             children: [
                               const SizedBox(height: 4),
                               Text(
-                                title, // E.g. "Mess Bill - 30 meals"
+                                title, 
                                 style: TextStyle(
                                   color: Colors.grey.shade800,
                                   fontSize: 12,
@@ -256,7 +303,7 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                formattedDate, // E.g. "01 Apr 2026, 01:28 PM"
+                                formattedDate, 
                                 style: TextStyle(
                                   color: Colors.grey.shade500,
                                   fontSize: 11,
@@ -305,6 +352,58 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
     );
   }
 
+  Widget _buildSummarySection() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      child: Row(
+        children: [
+          _buildSummaryCard("Total", totalAmount, themeColor),
+          const SizedBox(width: 8),
+          _buildSummaryCard("Paid", paidAmount, Colors.green),
+          const SizedBox(width: 8),
+          _buildSummaryCard("Pending", pendingAmount, Colors.orange),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryCard(String title, double amount, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title.toUpperCase(),
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color: color.withOpacity(0.8),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              "₹${amount.toStringAsFixed(0)}", 
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildFilterChip(String label) {
     bool isSelected = selectedFilter == label;
     return InkWell(
@@ -330,6 +429,65 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
             fontSize: 13,
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ✨ NEW: Screen to display the payment screenshot
+class PaymentScreenshotScreen extends StatelessWidget {
+  final String imageUrl;
+  final String studentName;
+
+  const PaymentScreenshotScreen({
+    super.key,
+    required this.imageUrl,
+    required this.studentName,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: Text("$studentName's Receipt"),
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
+      body: Center(
+        child: imageUrl.isNotEmpty
+            ? InteractiveViewer(
+                panEnabled: true,
+                minScale: 1.0,
+                maxScale: 4.0,
+                child: Image.network(
+                  imageUrl,
+                  loadingBuilder: (context, child, loadingProgress) {
+                    if (loadingProgress == null) return child;
+                    return const CircularProgressIndicator(color: Colors.white);
+                  },
+                  errorBuilder: (context, error, stackTrace) => const Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.broken_image, size: 64, color: Colors.grey),
+                      SizedBox(height: 16),
+                      Text("Failed to load image", style: TextStyle(color: Colors.grey)),
+                    ],
+                  ),
+                ),
+              )
+            : const Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.receipt_long, size: 80, color: Colors.grey),
+                  SizedBox(height: 16),
+                  Text(
+                    "No screenshot uploaded for this payment.",
+                    style: TextStyle(color: Colors.grey, fontSize: 16),
+                  ),
+                ],
+              ),
       ),
     );
   }

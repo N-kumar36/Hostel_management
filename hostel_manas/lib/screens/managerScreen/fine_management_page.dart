@@ -21,6 +21,9 @@ class _FineManagementPageState extends State<FineManagementPage> {
   DateTime _selectedMonth = DateTime.now();
   List<dynamic> monthlyBills = [];
 
+  // ✨ NEW: Bill Filter State
+  String selectedBillFilter = 'All';
+
   // --- MENU PRICE CONTROLLERS (Single Unit Prices for Fines) ---
   final TextEditingController _vegPriceController = TextEditingController(text: "35");
   final TextEditingController _eggPriceController = TextEditingController(text: "45");
@@ -158,19 +161,12 @@ class _FineManagementPageState extends State<FineManagementPage> {
       final success = await api.saveSettingData(fullConfig);
       if (success) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("All Configurations Saved Successfully!"),
-            backgroundColor: Colors.green,
-            behavior: SnackBarBehavior.floating,
-          ),
+          const SnackBar(content: Text("All Configurations Saved Successfully!"), backgroundColor: Colors.green),
         );
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Failed to save settings"),
-          backgroundColor: Colors.red,
-        ),
+        const SnackBar(content: Text("Failed to save settings"), backgroundColor: Colors.red),
       );
     } finally {
       setState(() => isLoading = false);
@@ -184,9 +180,6 @@ class _FineManagementPageState extends State<FineManagementPage> {
 
   Future<void> _loadBills() async {
     setState(() => isLoading = true);
-    
-    // NOTE: If your backend expects "March 2026", change this to DateFormat('MMMM yyyy'). 
-    // Currently using 'yyyy-MM' as per your previous setup.
     String formattedMonth = DateFormat('yyyy-MM').format(_selectedMonth);
     
     final res = await api.getBillsByMonth(formattedMonth);
@@ -196,7 +189,369 @@ class _FineManagementPageState extends State<FineManagementPage> {
     });
   }
 
-  // --- UI TABS ---
+  // ==========================================
+  // QUICK ACTION HANDLERS
+  // ==========================================
+  Future<void> _updateBillStatus(String fineId, String newStatus) async {
+    setState(() => isLoading = true);
+    try {
+      final success = await api.updateFineStatus(fineId, newStatus);
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Bill marked as $newStatus"), backgroundColor: newStatus == 'success' ? Colors.green : Colors.orange),
+        );
+        _loadBills();
+      } else {
+        throw Exception("Failed");
+      }
+    } catch (e) {
+      setState(() => isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Failed to update status"), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  void _showDeleteBillConfirmation(String fineId) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [Icon(Icons.warning, color: Colors.red), SizedBox(width: 8), Text("Delete Bill?")],
+        ),
+        content: const Text("Are you sure you want to completely delete this bill? This cannot be undone."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL", style: TextStyle(color: Colors.grey))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () async {
+              Navigator.pop(context);
+              setState(() => isLoading = true);
+              try {
+                final success = await api.deleteFine(fineId);
+                if (success) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bill deleted successfully"), backgroundColor: Colors.red));
+                  _loadBills();
+                } else {
+                  throw Exception("Failed");
+                }
+              } catch (e) {
+                setState(() => isLoading = false);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Failed to delete bill"), backgroundColor: Colors.red));
+              }
+            },
+            child: const Text("DELETE"),
+          )
+        ]
+      )
+    );
+  }
+
+  void _autoConvertToPlan(Map<String, dynamic> bill) async {
+    bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.upgrade, color: Colors.deepPurple),
+            SizedBox(width: 8),
+            Text("Convert to Meal Plan?"),
+          ],
+        ),
+        content: const Text(
+          "This will automatically convert this fine into a full monthly meal subscription for the student.",
+          style: TextStyle(fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false), 
+            child: const Text("CANCEL", style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true), 
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.deepPurple,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("PROCEED"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator(color: Colors.deepPurple)),
+    );
+
+    try {
+      String studentId = bill['studentId'] is Map ? bill['studentId']['_id'] : bill['studentId'].toString();
+      
+      final allSubs = await api.getManagerSubscriptions();
+      final existingSub = allSubs.firstWhere(
+        (s) {
+           String sId = s['studentId'] is Map ? s['studentId']['_id'] : s['studentId'].toString();
+           return sId == studentId && (s['status'] == 'active' || s['status'] == 'pending');
+        },
+        orElse: () => null
+      );
+
+      final res = await api.getmealPackages();
+      List<dynamic> availablePlans = [];
+      if (res != null) {
+        availablePlans = res['data'] ?? res['packages'] ?? [];
+      }
+
+      if (availablePlans.isEmpty) {
+        if (mounted) Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No meal plans configured in settings!"), backgroundColor: Colors.orange));
+        return;
+      }
+
+      String planId;
+      if (existingSub != null && existingSub['mealsPlanId'] != null) {
+         planId = existingSub['mealsPlanId'] is Map ? existingSub['mealsPlanId']['_id'] : existingSub['mealsPlanId'].toString();
+      } else {
+         planId = availablePlans[0]['_id'].toString();
+      }
+
+      final success = await api.convertFineToSub(bill['_id'], planId);
+      
+      if (mounted) Navigator.pop(context); 
+
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Successfully converted to Meal Plan!"), backgroundColor: Colors.green));
+        _loadBills(); 
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Failed to convert"), backgroundColor: Colors.red));
+      }
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
+    }
+  }
+
+  void _executeGuestConversion(String billId, StateSetter setParentState) async {
+    bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange),
+            SizedBox(width: 8),
+            Text("Confirm Conversion"),
+          ],
+        ),
+        content: const Text(
+          "Are you sure you want to proceed? The student's monthly subscription will be permanently cancelled, and these new guest meal bills will be generated.",
+          style: TextStyle(fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false), 
+            child: const Text("CANCEL", style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true), 
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
+            child: const Text("PROCEED"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setParentState(() => isLoading = true); 
+    
+    final success = await api.convertPackToGuestMeal(billId, {});
+    
+    if (mounted) {
+      Navigator.pop(context); 
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Fines created successfully!"), backgroundColor: Colors.green));
+        _loadBills(); 
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Failed to convert bill"), backgroundColor: Colors.red));
+      }
+    }
+  }
+
+  void _showConvertPackToGuestDialog(Map<String, dynamic> bill) async {
+    int vUsed = 0, eUsed = 0, pUsed = 0, cUsed = 0, fUsed = 0, mUsed = 0;
+
+    if (bill['subscriptionId'] != null && bill['subscriptionId'] is Map && bill['subscriptionId']['usage'] != null) {
+      final usage = bill['subscriptionId']['usage'];
+      vUsed = (usage['veg'] as num?)?.toInt() ?? 0;
+      eUsed = (usage['egg'] as num?)?.toInt() ?? 0;
+      pUsed = (usage['paneer'] as num?)?.toInt() ?? 0;
+      cUsed = (usage['chicken'] as num?)?.toInt() ?? 0;
+      fUsed = (usage['fish'] as num?)?.toInt() ?? 0;
+      mUsed = (usage['mutton'] as num?)?.toInt() ?? 0;
+    } 
+    else if (bill['subscriptionId'] != null) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator(color: Colors.orange)),
+      );
+
+      try {
+        String subId = bill['subscriptionId'].toString();
+        final allSubs = await api.getManagerSubscriptions();
+        final targetSub = allSubs.firstWhere((s) => s['_id'] == subId, orElse: () => null);
+
+        if (targetSub != null && targetSub['usage'] != null) {
+          final usage = targetSub['usage'];
+          vUsed = (usage['veg'] as num?)?.toInt() ?? 0;
+          eUsed = (usage['egg'] as num?)?.toInt() ?? 0;
+          pUsed = (usage['paneer'] as num?)?.toInt() ?? 0;
+          cUsed = (usage['chicken'] as num?)?.toInt() ?? 0;
+          fUsed = (usage['fish'] as num?)?.toInt() ?? 0;
+          mUsed = (usage['mutton'] as num?)?.toInt() ?? 0;
+        }
+      } catch (e) {
+        debugPrint("Error fetching subscription usage: $e");
+      }
+
+      if (mounted) Navigator.pop(context);
+    }
+
+    int vPrice = int.tryParse(_vegPriceController.text) ?? 35;
+    int ePrice = int.tryParse(_eggPriceController.text) ?? 45;
+    int pPrice = int.tryParse(_paneerPriceController.text) ?? 45;
+    int cPrice = int.tryParse(_chickenPriceController.text) ?? 65;
+    int fPrice = int.tryParse(_fishPriceController.text) ?? 55;
+    int mPrice = int.tryParse(_muttonPriceController.text) ?? 85;
+
+    int totalCost = (vUsed * vPrice) + (eUsed * ePrice) + (pUsed * pPrice) + 
+                    (cUsed * cPrice) + (fUsed * fPrice) + (mUsed * mPrice);
+    int totalMeals = vUsed + eUsed + pUsed + cUsed + fUsed + mUsed;
+
+    List<Map<String, dynamic>> breakdown = [
+      {"name": "Veg", "used": vUsed, "price": vPrice, "total": vUsed * vPrice},
+      {"name": "Egg", "used": eUsed, "price": ePrice, "total": eUsed * ePrice},
+      {"name": "Paneer", "used": pUsed, "price": pPrice, "total": pUsed * pPrice},
+      {"name": "Chicken", "used": cUsed, "price": cPrice, "total": cUsed * cPrice},
+      {"name": "Fish", "used": fUsed, "price": fPrice, "total": fUsed * fPrice},
+      {"name": "Mutton", "used": mUsed, "price": mPrice, "total": mUsed * mPrice},
+    ];
+
+    bool isConverting = false;
+
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: const Row(
+              children: [
+                Icon(Icons.fastfood, color: Colors.orange),
+                SizedBox(width: 10),
+                Expanded(child: Text("Convert to Guest Meals", style: TextStyle(fontSize: 18))),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "This will cancel the subscription, delete the package bill, and generate individual bills based on actual consumption.",
+                    style: TextStyle(color: Colors.grey, fontSize: 13),
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.orange.shade200),
+                    ),
+                    child: Column(
+                      children: [
+                        const Text("Total Meals Consumed", style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 12)),
+                        Text("$totalMeals Plates", style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87)),
+                        const Divider(height: 20),
+                        const Text("Total Fine Amount", style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 12)),
+                        Text("₹$totalCost", style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.redAccent)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text("Detailed Breakdown:", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87)),
+                  const SizedBox(height: 8),
+                  
+                  ...breakdown.map((item) => Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          "${item['name']} (${item['used']} @ ₹${item['price']})", 
+                          style: TextStyle(
+                            fontSize: 13, 
+                            color: item['used'] > 0 ? Colors.black87 : Colors.grey,
+                            fontWeight: item['used'] > 0 ? FontWeight.w600 : FontWeight.normal,
+                          )
+                        ),
+                        Text(
+                          "₹${item['total']}", 
+                          style: TextStyle(
+                            fontSize: 13, 
+                            color: item['used'] > 0 ? Colors.redAccent : Colors.grey, 
+                            fontWeight: item['used'] > 0 ? FontWeight.bold : FontWeight.normal
+                          )
+                        ),
+                      ],
+                    ),
+                  )).toList(),
+                  
+                  if (totalMeals == 0) ...[
+                     const SizedBox(height: 16),
+                     const Text("No meals consumed. The package will be cancelled without charges.", style: TextStyle(fontSize: 12, color: Colors.green, fontWeight: FontWeight.bold)),
+                  ]
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("CANCEL", style: TextStyle(color: Colors.grey)),
+              ),
+              ElevatedButton(
+                onPressed: isConverting
+                    ? null
+                    : () {
+                        _executeGuestConversion(bill['_id'], setDialogState);
+                      },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                child: isConverting
+                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : const Text("CREATE FINES"),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // ==========================================
+  // UI LAYOUT
+  // ==========================================
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
@@ -228,14 +583,11 @@ class _FineManagementPageState extends State<FineManagementPage> {
   }
 
   Widget _buildBillsTab() {
-    // ✨ FIXED: Check if we are allowed to go to the next month
     final now = DateTime.now();
-    bool canGoForward = _selectedMonth.year < now.year || 
-                       (_selectedMonth.year == now.year && _selectedMonth.month < now.month);
+    bool canGoForward = _selectedMonth.year < now.year || (_selectedMonth.year == now.year && _selectedMonth.month < now.month);
 
     return Column(
       children: [
-        // --- MONTH SELECTOR UI ---
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           color: Colors.white,
@@ -245,43 +597,186 @@ class _FineManagementPageState extends State<FineManagementPage> {
               IconButton(
                 icon: const Icon(Icons.chevron_left, color: Colors.redAccent),
                 onPressed: () {
-                  setState(() {
-                    _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month - 1);
-                  });
+                  setState(() => _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month - 1));
                   _loadBills();
                 },
               ),
-              Text(
-                DateFormat('MMMM yyyy').format(_selectedMonth),
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              // ✨ FIXED: Disables the button and grays it out if trying to go past current month
+              Text(DateFormat('MMMM yyyy').format(_selectedMonth), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               IconButton(
-                icon: Icon(
-                  Icons.chevron_right, 
-                  color: canGoForward ? Colors.redAccent : Colors.grey.shade300,
-                ),
-                onPressed: canGoForward
-                    ? () {
-                        setState(() {
-                          _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month + 1);
-                        });
-                        _loadBills();
-                      }
-                    : null, // Null disables the button entirely
+                icon: Icon(Icons.chevron_right, color: canGoForward ? Colors.redAccent : Colors.grey.shade300),
+                onPressed: canGoForward ? () {
+                  setState(() => _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month + 1));
+                  _loadBills();
+                } : null,
               ),
             ],
           ),
         ),
         const Divider(height: 1),
 
-        // --- BILLS LIST WITH REFRESH ---
+        // ✨ NEW: Horizontal Filter Chips
+        _buildBillFilters(),
+        
+        const Divider(height: 1),
+
         Expanded(
           child: isLoading
               ? const Center(child: CircularProgressIndicator(color: Colors.redAccent))
               : _buildPaymentList(),
         ),
       ],
+    );
+  }
+
+  // ✨ NEW: UI Widget for Bill Filters
+  Widget _buildBillFilters() {
+    List<String> statuses = ['All', 'Pending', 'Success', 'Rejected'];
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: Colors.grey.shade50,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: statuses.map((status) {
+            bool isSelected = selectedBillFilter == status;
+            return Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: ChoiceChip(
+                label: Text(status),
+                selected: isSelected,
+                selectedColor: Colors.redAccent.withOpacity(0.2),
+                backgroundColor: Colors.white,
+                labelStyle: TextStyle(
+                  color: isSelected ? Colors.redAccent : Colors.black87,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                ),
+                side: BorderSide(color: isSelected ? Colors.redAccent : Colors.grey.shade300),
+                onSelected: (bool selected) {
+                  setState(() {
+                    selectedBillFilter = status;
+                  });
+                },
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPaymentList() {
+    // ✨ NEW: Apply Filter logic to the monthlyBills
+    List<dynamic> filteredBills = monthlyBills;
+    if (selectedBillFilter != 'All') {
+      filteredBills = monthlyBills.where((b) {
+        String status = b['status']?.toString().toLowerCase() ?? 'pending';
+        return status == selectedBillFilter.toLowerCase();
+      }).toList();
+    }
+
+    if (filteredBills.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: _loadBills,
+        color: Colors.redAccent,
+        child: LayoutBuilder(
+          builder: (context, constraints) => ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: [
+              Container(
+                height: constraints.maxHeight,
+                alignment: Alignment.center,
+                child: Text(
+                  selectedBillFilter == 'All' 
+                      ? "No bills found for this month" 
+                      : "No $selectedBillFilter bills found", 
+                  style: const TextStyle(color: Colors.grey)
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    
+    return RefreshIndicator(
+      onRefresh: _loadBills,
+      color: Colors.redAccent,
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(), 
+        padding: const EdgeInsets.only(top: 8, bottom: 20),
+        itemCount: filteredBills.length,
+        itemBuilder: (context, index) {
+          final p = filteredBills[index];
+          final student = p['studentId'];
+          final String? photoUrl = student != null ? student['photoURL'] : null;
+          final String status = p['status'] ?? 'pending';
+
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12, left: 16, right: 16),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundImage: (photoUrl != null && photoUrl.isNotEmpty) ? NetworkImage(photoUrl) : null,
+                child: (photoUrl == null || photoUrl.isEmpty) ? const Icon(Icons.person) : null,
+              ),
+              title: Text(student?['name'] ?? "Unknown", style: const TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("₹${p['amount']} - ${p['title']}"),
+                  const SizedBox(height: 4),
+                  _buildStatusBadge(status),
+                ],
+              ),
+              trailing: PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert, color: Colors.grey),
+                onSelected: (value) {
+                  if (value == 'approve') _updateBillStatus(p['_id'], 'success'); 
+                  if (value == 'reject') _updateBillStatus(p['_id'], 'rejected');
+                  if (value == 'delete') _showDeleteBillConfirmation(p['_id']);
+                  if (value == 'convert_to_sub') _autoConvertToPlan(p);
+                  if (value == 'convert_to_guest') _showConvertPackToGuestDialog(p);
+                },
+                itemBuilder: (context) => [
+                  if (status.toLowerCase() != 'success' && status.toLowerCase() != 'approved')
+                    const PopupMenuItem(
+                      value: 'approve',
+                      child: Row(children: [Icon(Icons.check_circle, color: Colors.green, size: 20), SizedBox(width: 8), Text("Approve Payment")]),
+                    ),
+                  if (status.toLowerCase() != 'rejected')
+                    const PopupMenuItem(
+                      value: 'reject',
+                      child: Row(children: [Icon(Icons.cancel, color: Colors.orange, size: 20), SizedBox(width: 8), Text("Reject Payment")]),
+                    ),
+                  const PopupMenuItem(
+                    value: 'delete',
+                    child: Row(children: [Icon(Icons.delete, color: Colors.red, size: 20), SizedBox(width: 8), Text("Delete Bill")]),
+                  ),
+                  
+                  if (p['isMealPackage'] != true) 
+                    const PopupMenuItem(
+                      value: 'convert_to_sub',
+                      child: Row(children: [Icon(Icons.upgrade, color: Colors.deepPurple, size: 20), SizedBox(width: 8), Text("Convert to Meal Plan")]),
+                    ),
+                  
+                  if (p['isMealPackage'] == true) 
+                    const PopupMenuItem(
+                      value: 'convert_to_guest',
+                      child: Row(children: [Icon(Icons.fastfood, color: Colors.orange, size: 20), SizedBox(width: 8), Text("Convert to Guest Meals")]),
+                    ),
+                ],
+              ),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => PaymentDetailScreen(payment: p)),
+                ).then((_) => _loadBills()); 
+              },
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -314,13 +809,12 @@ class _FineManagementPageState extends State<FineManagementPage> {
             ),
           ),
         ),
-        // ✨ FIXED: Added RefreshIndicator so managers can pull to refresh the student list!
         Expanded(
           child: RefreshIndicator(
             onRefresh: _fetchAllStudents,
             color: Colors.redAccent,
             child: ListView.builder(
-              physics: const AlwaysScrollableScrollPhysics(), // Ensures it can be pulled even if list is short
+              physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               itemCount: filtered.length,
               itemBuilder: (c, i) {
@@ -506,72 +1000,6 @@ class _FineManagementPageState extends State<FineManagementPage> {
       child: Text(
         status.toUpperCase(),
         style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold),
-      ),
-    );
-  }
-
-  // --- Updated List Widget With PULL-TO-REFRESH ---
-  Widget _buildPaymentList() {
-    // If empty, return a Scrollable area inside the RefreshIndicator so it can still be pulled!
-    if (monthlyBills.isEmpty) {
-      return RefreshIndicator(
-        onRefresh: _loadBills,
-        color: Colors.redAccent,
-        child: LayoutBuilder(
-          builder: (context, constraints) => ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            children: [
-              Container(
-                height: constraints.maxHeight,
-                alignment: Alignment.center,
-                child: const Text("No bills found for this month"),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-    
-    return RefreshIndicator(
-      onRefresh: _loadBills,
-      color: Colors.redAccent,
-      child: ListView.builder(
-        physics: const AlwaysScrollableScrollPhysics(), // Ensures it can be pulled even if list is short
-        padding: const EdgeInsets.only(top: 8, bottom: 20),
-        itemCount: monthlyBills.length,
-        itemBuilder: (context, index) {
-          final p = monthlyBills[index];
-          final student = p['studentId'];
-          final String? photoUrl = student != null ? student['photoURL'] : null;
-          final String status = p['status'] ?? 'pending';
-
-          return Card(
-            margin: const EdgeInsets.only(bottom: 12, left: 16, right: 16),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-            child: ListTile(
-              leading: CircleAvatar(
-                backgroundImage: (photoUrl != null && photoUrl.isNotEmpty) ? NetworkImage(photoUrl) : null,
-                child: (photoUrl == null || photoUrl.isEmpty) ? const Icon(Icons.person) : null,
-              ),
-              title: Text(student?['name'] ?? "Unknown", style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text("₹${p['amount']} - ${p['title']}"),
-                  const SizedBox(height: 4),
-                  _buildStatusBadge(status),
-                ],
-              ),
-              trailing: const Icon(Icons.chevron_right, color: Colors.redAccent),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => PaymentDetailScreen(payment: p)),
-                ).then((_) => _loadBills()); 
-              },
-            ),
-          );
-        },
       ),
     );
   }

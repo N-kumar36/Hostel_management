@@ -16,6 +16,11 @@ import Notification from "../models/Notification.js";
 
 
 
+
+
+
+
+
 export const voteMeal = async (req, res) => {
   try {
     const { mealId, timeSlot, mealType } = req.body;
@@ -269,57 +274,46 @@ export const getVotesByDateAndSlot = async (req, res) => {
       return res.status(400).json({ success: false, message: "Date and Slot are required" });
     }
 
-    // 1. Find the Meal document (Needed for mealId and hostelId)
-    // NOTE: If your app has multiple hostels, make sure you query by hostelId here too!
     const meal = await Meal.findOne({ date: mealDate });
-    if (!meal) {
-      return res.status(404).json({ success: false, message: "No meal routine found for this date" });
-    }
+    if (!meal) return res.status(404).json({ success: false, message: "No meal routine found for this date" });
 
-    // 2. Fetch ALL approved users (students) belonging to this hostel
     const allUsers = await User.find({
       hostelId: meal.hostelId,
-      pending: "approve" // Only get active, approved users
+      pending: "approve" 
     }).select("_id name email photoURL");
 
-    // 3. Fetch all votes (Students + Guests) for this specific meal and slot
     const votes = await Vote.find({
       mealId: meal._id,
       timeSlot: timeSlot.toLowerCase()
     }).populate("userId", "name email photoURL");
 
-    // 4. Separate regular votes and guest votes for easier mapping
     const regularVotesMap = {};
     const guestVotesList = [];
 
     votes.forEach(vote => {
-      if (vote.isGuest) {
-        guestVotesList.push(vote);
+      // ✨ FIXED: If they have a userId, they are a registered student (even if paying guest rates!)
+      if (vote.userId) {
+        regularVotesMap[vote.userId._id.toString()] = vote;
       } else {
-        // Create a dictionary keyed by userId for quick lookup
-        if (vote.userId) {
-          regularVotesMap[vote.userId._id.toString()] = vote;
-        }
+        guestVotesList.push(vote);
       }
     });
 
-    // 5. Build the final merged array
     const formattedData = [];
 
-    // Map through ALL users to see if they voted
     allUsers.forEach(user => {
       const userIdStr = user._id.toString();
-      const userVote = regularVotesMap[userIdStr]; // Check if they have a vote
+      const userVote = regularVotesMap[userIdStr];
 
       formattedData.push({
-        studentId: user._id, // Crucial for the Flutter fallback
-        voteId: userVote ? userVote._id : null, // Will be null if they haven't voted
+        studentId: user._id, 
+        voteId: userVote ? userVote._id : null,
         studentName: user.name,
         studentEmail: user.email,
         studentPhoto: user.photoURL || "",
         mealDate: mealDate,
         timeSlot: timeSlot.toLowerCase(),
-        choice: userVote ? userVote.mealType : "", // Empty means NOT VOTED
+        choice: userVote ? userVote.mealType : "", 
         votedAt: userVote ? userVote.votedAt : null,
         isServed: userVote ? userVote.isServed : false,
         isGuest: false,
@@ -327,13 +321,12 @@ export const getVotesByDateAndSlot = async (req, res) => {
       });
     });
 
-    // Append the guest votes to the bottom of the list
     guestVotesList.forEach(guestVote => {
       formattedData.push({
-        studentId: guestVote._id, // Fallback ID
+        studentId: guestVote._id, 
         voteId: guestVote._id,
         studentName: guestVote.guestName || "Unknown Guest",
-        studentEmail: guestVote.userId?.email || "N/A",
+        studentEmail: "N/A",
         studentPhoto: "",
         mealDate: mealDate,
         timeSlot: timeSlot.toLowerCase(),
@@ -341,11 +334,10 @@ export const getVotesByDateAndSlot = async (req, res) => {
         votedAt: guestVote.votedAt,
         isServed: guestVote.isServed,
         isGuest: true,
-        hostName: guestVote.userId?.name || "Unknown Host"
+        hostName: "Unknown Host"
       });
     });
 
-    // 6. Send the merged response
     res.json({
       success: true,
       count: formattedData.length,
@@ -356,7 +348,6 @@ export const getVotesByDateAndSlot = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
-
 
 
 
@@ -621,6 +612,7 @@ export const getVotesByDateAndSlot = async (req, res) => {
 //   }
 // };
 
+
 export const toggleServeStatus = async (req, res) => {
   try {
     const { voteId, studentId, mealDate, timeSlot } = req.body;
@@ -628,21 +620,33 @@ export const toggleServeStatus = async (req, res) => {
     let vote = null;
     let isNewVote = false;
     let mealIdToUse = null;
+    let currentHostelId = req.user.hostelId;
 
-    console.log("voteId", voteId, "studentId", studentId, "mealDate", mealDate, "timeSlot", timeSlot);
-
-    // 1. Try to find the existing vote
+    // 1. Try to find the existing vote by ID
     if (voteId) {
       vote = await Vote.findById(voteId).populate("mealId");
+    }
+
+    //  FIXED: Removed 'isGuest: false' from the search. 
+    // If the voteId is missing, it will now find ANY vote the student has for this meal.
+    if (!vote && studentId && mealDate && timeSlot) {
+      const meal = await Meal.findOne({ date: mealDate, hostelId: currentHostelId });
+      if (meal) {
+        mealIdToUse = meal._id;
+        vote = await Vote.findOne({
+          userId: studentId,
+          mealId: meal._id,
+          timeSlot: timeSlot.toLowerCase()
+        }).populate("mealId");
+      }
     }
 
     let isNowServed;
     let currentMealType;
     let currentUserId;
-    let currentHostelId;
     let currentMealDateObj;
 
-    // 2. If no vote exists, we are serving a "Walk-in" (Unvoted Student)
+    // 2. If STILL no vote exists, it genuinely is a new Walk-in student
     if (!vote) {
       if (!studentId || !mealDate || !timeSlot) {
         return res.status(400).json({ success: false, message: "Missing required fields to serve unvoted student." });
@@ -651,14 +655,15 @@ export const toggleServeStatus = async (req, res) => {
       const user = await User.findById(studentId);
       if (!user) return res.status(404).json({ success: false, message: "Student not found" });
 
-      currentHostelId = user.hostelId;
       currentUserId = user._id;
 
-      const meal = await Meal.findOne({ date: mealDate, hostelId: currentHostelId });
-      if (!meal) return res.status(404).json({ success: false, message: "Meal not found for this date" });
-      mealIdToUse = meal._id;
+      if (!mealIdToUse) {
+         const newMeal = await Meal.findOne({ date: mealDate, hostelId: currentHostelId });
+         if (!newMeal) return res.status(404).json({ success: false, message: "Meal not found for this date" });
+         mealIdToUse = newMeal._id;
+      }
 
-      // Determine Meal Type from Weekly Routine using NUMBER keys (1-7)
+      // Determine Meal Type from Weekly Routine
       currentMealDateObj = moment(mealDate, "DD/MM/YYYY");
       const dayOfWeekNumString = currentMealDateObj.isoWeekday().toString();
 
@@ -676,13 +681,15 @@ export const toggleServeStatus = async (req, res) => {
       }
 
       isNewVote = true;
-      isNowServed = true;
+      isNowServed = true; // We are serving a new walk-in
     } else {
+      // Vote EXISTS! We just toggle the isServed status safely.
       currentMealType = vote.mealType.toLowerCase();
       currentUserId = vote.userId;
       currentHostelId = vote.hostelId;
       currentMealDateObj = moment(vote.mealId.date, "DD/MM/YYYY");
-      isNowServed = !vote.isServed;
+      isNowServed = !vote.isServed; // Flip the switch
+      mealIdToUse = vote.mealId._id;
     }
 
     // 3. Find Subscription
@@ -691,7 +698,6 @@ export const toggleServeStatus = async (req, res) => {
       status: { $in: ["active", "completed", "pending"] }
     }).sort({ createdAt: -1 });
 
-    // ✨ FIXED: If no subscription exists, flag them to be treated as a Guest instead of throwing an error!
     let isUnsubscribedGuest = false;
     if (!subscription && (!vote || !vote.isGuest)) {
       isUnsubscribedGuest = true; 
@@ -701,11 +707,9 @@ export const toggleServeStatus = async (req, res) => {
     let fineGenerated = false;
     if (isNowServed && (!vote || !vote.isGuest || isUnsubscribedGuest)) {
       
-      // Safely check usage (if they don't have a sub, usage is treated as 0 and max is 0)
       const currentUsage = subscription ? (subscription.usage[currentMealType] || 0) : 0;
       const maxAllowed = subscription ? (subscription.maxLimits[currentMealType] || 0) : 0;
 
-      // If they are unsubscribed, OR they exceeded their plan limits
       if (isUnsubscribedGuest || currentUsage >= maxAllowed) {
         const priceList = await FinePrice.findOne({ hostelId: currentHostelId });
         const fineAmount = priceList ? priceList.prices[currentMealType] : 50;
@@ -727,9 +731,18 @@ export const toggleServeStatus = async (req, res) => {
 
         fineGenerated = true;
       }
+    } 
+    else if (!isNowServed) {
+        await Fine.findOneAndDelete({
+            studentId: currentUserId,
+            hostelId: currentHostelId,
+            status: "pending",
+            isMealPackage: false,
+            title: { $regex: currentMealType, $options: "i" } 
+        });
     }
 
-    // 4. Update Subscription Usage (ONLY if they actually have a subscription)
+    // 4. Update Subscription Usage 
     let updatedSubscriptionId = null;
 
     if (!isUnsubscribedGuest && (!vote || !vote.isGuest) && subscription) {
@@ -754,7 +767,7 @@ export const toggleServeStatus = async (req, res) => {
         mealId: mealIdToUse,
         timeSlot: timeSlot.toLowerCase(),
         mealType: currentMealType,
-        isGuest: isUnsubscribedGuest ? true : false, // ✨ FIXED: Mark as guest if no sub!
+        isGuest: isUnsubscribedGuest ? true : false, 
         isServed: true,
         servedAt: new Date(),
         votedAt: new Date()
@@ -763,53 +776,27 @@ export const toggleServeStatus = async (req, res) => {
     } else {
       vote.isServed = isNowServed;
       vote.servedAt = isNowServed ? new Date() : null;
-      // If it was an existing vote but they had no sub, we could optionally force isGuest=true here
       if (isUnsubscribedGuest) vote.isGuest = true;
-      await vote.save();
+      await vote.save(); 
     }
 
-    // 6. Run the auto-completion check! (Only if they have a subscription)
     if (updatedSubscriptionId) {
       if (typeof consumptionOverviewCheck === 'function') {
         await consumptionOverviewCheck(updatedSubscriptionId);
-      } else {
-        console.warn("consumptionOverviewCheck function is missing or not imported.");
       }
     }
 
-    // 7. Generate the In-App Notification
-    try {
-      if (isNowServed && (!vote || !vote.isGuest || isUnsubscribedGuest)) {
-        let notifMessage = `You have consumed your ${timeSlot.toLowerCase()} meal: ${currentMealType.toUpperCase()}.`;
-
-        if (isUnsubscribedGuest) {
-          notifMessage += ` Note: You have no active subscription. A single-meal bill has been generated.`;
-        } else if (fineGenerated) {
-          notifMessage += ` Note: You exceeded your plan limit. An extra meal bill has been generated.`;
-        }
-
-        await Notification.create({
-          userId: currentUserId,
-          hostelId: currentHostelId,
-          title: isUnsubscribedGuest ? "Walk-in Meal Served" : (fineGenerated ? "Extra Meal Served" : "Meal Served"),
-          message: notifMessage,
-          type: "served"
-        });
-      }
-    } catch (notifErr) {
-      console.error("Failed to create notification:", notifErr.message);
-    }
-
-    // Return final response
+    //  FIXED: Added 'voteId: vote._id' to the response so Flutter knows the newly created ID!
     res.json({
       success: true,
       message: isNowServed
         ? (isUnsubscribedGuest 
             ? `Walk-in ${currentMealType} served. Bill generated!` 
             : (fineGenerated ? `Extra ${currentMealType} served. Fine generated!` : `Marked ${currentMealType} as served`))
-        : "Service undone",
+        : `Un-served ${currentMealType}. Usage refunded.`,
       isServed: vote.isServed,
-      mealType: currentMealType
+      mealType: currentMealType,
+      voteId: vote._id // <--- IMPORTANT 
     });
 
   } catch (error) {

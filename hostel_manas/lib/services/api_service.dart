@@ -9,9 +9,9 @@ import 'package:intl/intl.dart';
 
 class ApiService {
   // final String baseUrl = "https://hostel-management-3e61.onrender.com/api";
-  final String baseUrl = "http://192.168.0.39:5000/api";
+  // final String baseUrl = "http://192.168.0.27:5000/api";
   // final String baseUrl = "http://192.168.18.253:5000/api";
-  // final String baseUrl = "https://hostel-management-rouge-six.vercel.app/api";
+  final String baseUrl = "https://hostel-management-rouge-six.vercel.app/api";
 
   // Helper to get headers with Bearer token
   Future<Map<String, String>> _getHeaders() async {
@@ -1198,6 +1198,74 @@ class ApiService {
     } catch (e) {
       debugPrint("Delete Sub Error: $e");
       rethrow;
+    }
+  }
+
+  // Update Fine/Bill Status (Approve/Reject)
+  Future<bool> updateFineStatus(String fineId, String status) async {
+    try {
+      final response = await http.put(
+        Uri.parse(
+          "$baseUrl/fines/$fineId/status",
+        ), // Adjust route if your backend route is different
+        headers: await _getHeaders(),
+        body: json.encode({"status": status}),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint("Update Fine Status Error: $e");
+      return false;
+    }
+  }
+
+  // Delete Fine/Bill
+  Future<bool> deleteFine(String fineId) async {
+    try {
+      final response = await http.delete(
+        Uri.parse(
+          "$baseUrl/fines/$fineId",
+        ), // Adjust route if your backend route is different
+        headers: await _getHeaders(),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint("Delete Fine Error: $e");
+      return false;
+    }
+  }
+
+  // Convert a Meal Package into a single Guest Meal / Fine
+  Future<bool> convertPackToGuestMeal(
+    String fineId,
+    Map<String, dynamic> data,
+  ) async {
+    try {
+      final response = await http.post(
+        Uri.parse(
+          "$baseUrl/fines/$fineId/convert-to-guest",
+        ), // Ensure this matches your backend route
+        headers: await _getHeaders(),
+        body: json.encode(data),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint("Convert to Guest Meal Error: $e");
+      return false;
+    }
+  }
+
+  // Convert a Fine into a Meal Subscription
+  Future<bool> convertFineToSub(String fineId, String planId) async {
+    try {
+      final response = await http.post(
+        Uri.parse("$baseUrl/fines/$fineId/convert-to-subscription"),
+        headers: await _getHeaders(),
+        body: json.encode({"planId": planId}),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint("Convert Fine Error: $e");
+      return false;
     }
   }
 }

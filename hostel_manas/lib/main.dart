@@ -93,7 +93,8 @@ class _SplashScreenState extends State<SplashScreen>
 
       if (profileData != null) {
         bool isManager = profileData['role'] == 'manager';
-        if (mounted) _navigateTo(HomePage(isManager: isManager));
+        bool isAdmin = profileData['role'] == 'admin';
+        if (mounted) _navigateTo(HomePage(isManager: isManager, isAdmin: isAdmin));
       } else {
         // Token exists but data fetch failed (expired session)
         if (mounted) _navigateTo(const LoginPage());
