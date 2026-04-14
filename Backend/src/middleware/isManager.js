@@ -10,6 +10,12 @@ export const checkPermission = (requiredPermission) => {
         isActive: true // Just check if they are currently active
       });
 
+      const admin = req.user.roles.includes("admin");
+
+      if (admin) {
+        return next(); // Admins bypass all checks
+      }
+
       if (!manager) {
         return res.status(403).json({
           success: false,
