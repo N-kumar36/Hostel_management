@@ -7,8 +7,9 @@ export const registerValidation = [
     .isLength({ min: 2 }).withMessage("Name must be at least 2 characters"),
 
   body("email")
-    .isEmail().withMessage("Valid email required")
-    .normalizeEmail(), // Converts to lowercase and removes dots for Gmail
+    .trim()
+    .isEmail()
+    .withMessage("Valid email required"),
 
   body("password")
     .isLength({ min: 6 })
@@ -18,32 +19,43 @@ export const registerValidation = [
     .isMobilePhone("en-IN")
     .withMessage("Valid Indian phone number required"),
 
-
   body("hostelId")
     .notEmpty().withMessage("Hostel ID is required"),
 
   body("otp")
-    .isLength({ min: 6, max: 6 }).withMessage("OTP must be 6 digits")
+    .isLength({ min: 6, max: 6 })
+    .withMessage("OTP must be 6 digits")
 ];
 
 export const loginValidation = [
   body("email")
-    .isEmail().withMessage("Valid email required")
-    .normalizeEmail(),
+    .trim()
+    .isEmail()
+    .withMessage("Valid email required"),
 
   body("password")
-    .notEmpty().withMessage("Password is required")
+    .notEmpty()
+    .withMessage("Password is required")
 ];
 
 export const forgetValidation = [
   body("email")
-  .isEmail().withMessage("Valid Email Required"),
+    .trim()
+    .isEmail()
+    .withMessage("Valid Email Required"),
 
   body("password")
-  .isLength({min: 6})
-  .withMessage("Password must be at least 6 characters"),
+    .isLength({ min: 6 })
+    .withMessage("Password must be at least 6 characters"),
 
   body("otp")
-  .isLength({min:6, max: 6}).withMessage("OTP must ne 6 digits")
-]
+    .isLength({ min: 6, max: 6 })
+    .withMessage("OTP must be 6 digits")
+];
 
+export const otpValidation = [
+  body("email")
+    .trim()
+    .isEmail()
+    .withMessage("Valid email required")
+];

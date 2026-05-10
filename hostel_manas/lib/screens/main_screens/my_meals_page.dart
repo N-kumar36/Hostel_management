@@ -288,12 +288,20 @@ class _MyVotesPageState extends State<MyVotesPage> {
             onPressed: isPackageUpdating
                 ? null
                 : () {
+                    // Find the 60 meals package
                     final sixtyDay = availablePackages.firstWhere(
                       (p) => p['planType'] == "60 meals",
                       orElse: () => null,
                     );
-                    if (sixtyDay != null)
-                      _handlePackageSelection(sixtyDay['_id']);
+
+                    if (sixtyDay != null) {
+                      // Trigger the confirmation dialog instead of immediate update
+                      _showUpgradeConfirmDialog(
+                        sixtyDay['_id'],
+                        sixtyDay['planType'],
+                        500, // The upgrade cost
+                      );
+                    }
                   },
             child: const Text("PAY ₹500"),
           ),
@@ -420,7 +428,10 @@ class _MyVotesPageState extends State<MyVotesPage> {
     required int price,
   }) {
     return GestureDetector(
-      onTap: isPackageUpdating ? null : () => _handlePackageSelection(id),
+      // Change this line:
+      onTap: isPackageUpdating
+          ? null
+          : () => _showConfirmPlanDialog(id, title, price),
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
@@ -428,14 +439,37 @@ class _MyVotesPageState extends State<MyVotesPage> {
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: Colors.grey.shade300),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 5,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+                const Text(
+                  "Monthly Plan",
+                  style: TextStyle(color: Colors.grey, fontSize: 12),
+                ),
+              ],
+            ),
             Text(
               "₹$price",
               style: const TextStyle(
+                fontSize: 18,
                 fontWeight: FontWeight.bold,
                 color: Colors.deepPurple,
               ),
@@ -746,4 +780,82 @@ class _MyVotesPageState extends State<MyVotesPage> {
       ],
     ),
   );
+
+  // conform dialog
+  void _showConfirmPlanDialog(String id, String title, int price) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Text("Confirm Selection"),
+          content: Text(
+            "Do you want to subscribe to the $title plan for ₹$price?",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("CANCEL", style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.deepPurple,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              onPressed: () {
+                Navigator.pop(context); // Close dialog
+                _handlePackageSelection(id); // Execute the API call
+              },
+              child: const Text("CONFIRM"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showUpgradeConfirmDialog(String id, String title, int cost) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: const [
+            Icon(Icons.unfold_more, color: Colors.orange),
+            SizedBox(width: 10),
+            Text("Confirm Upgrade"),
+          ],
+        ),
+        content: Text(
+          "Are you sure you want to upgrade to $title?\n\nAn additional charge of ₹$cost will be applied to your account.",
+          style: const TextStyle(fontSize: 15),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("NOT NOW", style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            onPressed: () {
+              Navigator.pop(context); // Close dialog
+              _handlePackageSelection(id); // Execute update
+            },
+            child: const Text("CONFIRM & PAY"),
+          ),
+        ],
+      ),
+    );
+  }
 }

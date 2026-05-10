@@ -78,6 +78,8 @@ class HostelRulesWidget extends StatelessWidget {
               _buildContactItem("Ritanu Mondal", "8101744092"),
               const Divider(),
               _buildContactItem("Riju Hosen", "8101928261"),
+              const Divider(),
+              _buildContactItem("Sujoy", "9564934437"),
             ],
           ),
         ),

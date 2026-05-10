@@ -9,7 +9,7 @@ import 'package:intl/intl.dart';
 
 class ApiService {
   // final String baseUrl = "https://hostel-management-3e61.onrender.com/api";
-  final String baseUrl = "http://192.168.0.27:5000/api";
+  final String baseUrl = "http://10.22.106.123:5000/api";
   // final String baseUrl = "http://192.168.18.253:5000/api";
   // final String baseUrl = "https://hostel-management-rouge-six.vercel.app/api";
 
