@@ -1,3 +1,7 @@
+import 'package:flutter/material.dart';
+import 'package:HostelMess/services/api_service.dart';
+
+// Import references...
 import 'package:HostelMess/screens/managerScreen/MealSubscriptionsPage.dart';
 import 'package:HostelMess/screens/managerScreen/fine_management_page.dart';
 import 'package:HostelMess/screens/managerScreen/PendingStudentsPage.dart';
@@ -7,9 +11,7 @@ import 'package:HostelMess/screens/managerScreen/VoteStatsPage.dart';
 import 'package:HostelMess/screens/managerScreen/all_hostel_student_page.dart';
 import 'package:HostelMess/screens/managerScreen/create_meal_page.dart';
 import 'package:HostelMess/screens/managerScreen/GuestMealPage.dart';
-import 'package:HostelMess/services/api_service.dart';
-import 'package:flutter/material.dart';
-import '../managerScreen/ComplainsPage.dart';
+import 'package:HostelMess/screens/managerScreen/ComplainsPage.dart';
 
 class ManagerPanelPage extends StatefulWidget {
   const ManagerPanelPage({super.key});
@@ -23,6 +25,9 @@ class _ManagerPanelPageState extends State<ManagerPanelPage> {
 
   int pendingStudentCount = 0;
   int pendingGuestMealCount = 0;
+  int pendingComplaintCount = 0;
+  int pendingFineCount = 0; // ✨ NEW: State parameter variable for pending fines
+  bool isScreenLoading = false;
 
   @override
   void initState() {
@@ -30,180 +35,165 @@ class _ManagerPanelPageState extends State<ManagerPanelPage> {
     _fetchCounts();
   }
 
-  // Fetch the counts from the backend
   Future<void> _fetchCounts() async {
+    if (isScreenLoading) return;
+    setState(() => isScreenLoading = true);
+
     try {
-      // Single API call fetches both numbers instantly
       final res = await api.getDashboardCounts();
 
       if (mounted && res['success'] == true) {
         setState(() {
-          // Fallback to 0 if null
           pendingStudentCount = res['pendingStudents'] ?? 0;
           pendingGuestMealCount = res['pendingGuests'] ?? 0;
+          pendingComplaintCount = res['pendingComplaints'] ?? 0; 
+          pendingFineCount = res['pendingFines'] ?? 0; 
         });
+        print("Dashboard counts loaded: $res | Pending Students: $pendingStudentCount, Pending Guests: $pendingGuestMealCount, Pending Complaints: $pendingComplaintCount, Pending Fines: $pendingFineCount");
       }
     } catch (e) {
-      debugPrint("Error fetching counts: $e");
+      debugPrint("Error loading dashboard counters: $e");
+    } finally {
+      if (mounted) {
+        setState(() => isScreenLoading = false);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text("Manager Panel"),
+        title: const Text("Manager Panel", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
         centerTitle: true,
         backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
+        foregroundColor: Colors.black87,
+        elevation: 0.5,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded, color: Colors.deepPurple),
+            onPressed: _fetchCounts,
+          )
+        ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
+      body: RefreshIndicator(
+        onRefresh: _fetchCounts,
+        color: Colors.deepPurple,
         child: GridView.count(
+          padding: const EdgeInsets.all(16.0),
           crossAxisCount: 2,
-          crossAxisSpacing: 16,
-          mainAxisSpacing: 16,
+          crossAxisSpacing: 14,
+          mainAxisSpacing: 14,
+          childAspectRatio: 1.1,
           children: [
             _adminCard(
               context,
-              "Pending Student",
-              Icons.person_add_alt_1,
+              "Pending Students",
+              Icons.person_add_alt_1_rounded,
               Colors.green,
-              () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const PendingStudentsPage(),
-                  ),
-                ).then((_) => _fetchCounts()); // Refresh count when returning
-              },
-              badgeCount: pendingStudentCount, // Pass the count here
-            ),
-            _adminCard(context, "All Students", Icons.group, Colors.purple, () {
-              Navigator.push(
+              () => Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (context) => const AllHostelStudentPage(),
-                ),
-              );
-            }),
+                MaterialPageRoute(builder: (context) => const PendingStudentsPage()),
+              ).then((_) => _fetchCounts()), 
+              badgeCount: pendingStudentCount,
+            ),
+            _adminCard(
+              context, 
+              "All Students", 
+              Icons.group_rounded, 
+              Colors.purple, 
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const AllHostelStudentPage()),
+              ),
+            ),
             _adminCard(
               context,
               "Set Hostel Routine",
-              Icons.calendar_today,
+              Icons.calendar_today_rounded,
               Colors.teal.shade600,
-              () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const RoutineManagementPage(),
-                  ),
-                );
-              },
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const RoutineManagementPage()),
+              ),
             ),
             _adminCard(
               context,
               "Create Meal",
-              Icons.add_circle_outline,
+              Icons.add_circle_outline_rounded,
               const Color.fromARGB(255, 34, 211, 208),
-              () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const MealManagementPage(),
-                  ),
-                );
-              },
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const MealManagementPage()),
+              ),
             ),
             _adminCard(
               context,
               "Vote Stats",
               Icons.bar_chart_rounded,
               Colors.blue,
-              () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const VoteStatusSelectionPage(),
-                  ),
-                );
-              },
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const VoteStatusSelectionPage()),
+              ),
             ),
             _adminCard(
               context,
               "Serve Meals",
               Icons.restaurant_rounded,
               Colors.orange,
-              () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const ServeMealPage(),
-                  ),
-                );
-              },
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ServeMealPage()),
+              ),
             ),
-            // _adminCard(
-            //   context,
-            //   "Generate Fines",
-            //   Icons.monetization_on_outlined,
-            //   Colors.red,
-            //   () {
-            //     Navigator.push(
-            //       context,
-            //       MaterialPageRoute(
-            //         builder: (context) => const FineManagementPage(),
-            //       ),
-            //     );
-            //   },
-            // ),
             _adminCard(
               context,
-              "Guest Meal",
+              "Guest Meals",
               Icons.supervised_user_circle_rounded,
               const Color.fromARGB(255, 54, 174, 244),
-              () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const GuestMealPage(),
-                  ),
-                ).then((_) => _fetchCounts()); // Refresh count when returning
-              },
-              badgeCount: pendingGuestMealCount, // Pass the count here
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const GuestMealPage()),
+              ).then((_) => _fetchCounts()), 
+              badgeCount: pendingGuestMealCount,
             ),
-            // _adminCard(
-            //   context,
-            //   "Meal Subscriptions",
-            //   Icons.food_bank_rounded,
-            //   Colors.green,
-            //   () {
-            //     Navigator.push(
-            //       context,
-            //       MaterialPageRoute(
-            //         builder: (context) =>
-            //             const MealSubscriptionsPage(), // <-- FIXED THIS
-            //       ),
-            //     ).then((_) => _fetchCounts()); // Refresh count when returning
-            //   },
-            //   badgeCount:
-            //       pendingGuestMealCount, // Update this if you have a pending sub count
-            // ),
+            
+            // ✨ UPDATED: Finance Management Card with independent counter badge
             _adminCard(
               context,
-              "Complains",
+              "Finance Management",
+              Icons.monetization_on_outlined,
+              Colors.red,
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const FineManagementPage()),
+              ).then((_) => _fetchCounts()),
+              badgeCount: pendingFineCount, // ✅ Displays true count of unhandled pending fines!
+            ),
+            
+            _adminCard(
+              context,
+              "Meal Subscriptions",
+              Icons.food_bank_rounded,
+              Colors.green.shade700,
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const MealSubscriptionsPage()),
+              ),
+              badgeCount: 0,
+            ),
+            _adminCard(
+              context,
+              "Complaints",
               Icons.feedback_outlined,
               const Color.fromARGB(255, 184, 204, 56),
-              () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const ComplainsPage(),
-                  ),
-                ).then((_) => _fetchCounts()); // Refresh count when returning
-              },
-              badgeCount: pendingGuestMealCount, // Pass the count here
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ComplainsPage()),
+              ).then((_) => _fetchCounts()),
+              badgeCount: pendingComplaintCount,
             ),
           ],
         ),
@@ -211,71 +201,64 @@ class _ManagerPanelPageState extends State<ManagerPanelPage> {
     );
   }
 
-  // Updated to accept an optional badgeCount
   Widget _adminCard(
     BuildContext context,
     String title,
     IconData icon,
     Color color,
     VoidCallback onTap, {
-    int badgeCount = 0, // Defaults to 0
+    int badgeCount = 0,
   }) {
     return Stack(
       children: [
-        // Main Card
-        InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(16),
-          child: Container(
-            width: double.infinity,
-            height: double.infinity,
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: color.withOpacity(0.3)),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(icon, size: 40, color: color),
-                const SizedBox(height: 12),
-                Text(
-                  title,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontWeight: FontWeight.bold, color: color),
+        Card(
+          margin: EdgeInsets.zero,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: color.withOpacity(0.2), width: 1),
+          ),
+          color: color.withOpacity(0.04),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(16),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(icon, size: 36, color: color),
+                    const SizedBox(height: 10),
+                    Text(
+                      title,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 13, letterSpacing: 0.2),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
-
-        // Red Notification Badge
         if (badgeCount > 0)
           Positioned(
-            top: 8, // Safely inside the card bounds
-            right: 8, // Safely inside the card bounds
+            top: 10,
+            right: 10,
             child: Container(
               padding: const EdgeInsets.all(4),
-              constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
-              decoration: const BoxDecoration(
-                color: Colors.red,
+              constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+              decoration: BoxDecoration(
+                color: Colors.red.shade600,
                 shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black26,
-                    blurRadius: 4,
-                    offset: Offset(0, 2),
-                  ),
+                boxShadow: const [
+                  BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 1.5)),
                 ],
               ),
               child: Center(
                 child: Text(
                   badgeCount > 99 ? '99+' : badgeCount.toString(),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 11,
-                  ),
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 10),
                   textAlign: TextAlign.center,
                 ),
               ),

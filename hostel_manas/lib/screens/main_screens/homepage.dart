@@ -6,7 +6,8 @@ import 'package:HostelMess/screens/homePagesScreen/utilityFunction/All_StudentPa
 import 'package:HostelMess/screens/homePagesScreen/utilityFunction/DailyMenuCard.dart';
 import 'package:HostelMess/screens/homePagesScreen/utilityFunction/RoutineScreen.dart';
 import 'package:HostelMess/screens/main_screens/profile_page.dart';
-import 'package:HostelMess/screens/main_screens/utility/HostelRulesWidget.dart';
+import 'package:HostelMess/screens/main_screens/utility_screen/HostelRulesWidget.dart';
+import 'package:HostelMess/screens/main_screens/utility_screen/meal_packages_section.dart';
 import 'package:HostelMess/screens/main_screens/weekly_meals_page.dart';
 import 'package:HostelMess/services/api_service.dart';
 import 'package:HostelMess/services/localServices.dart';
@@ -148,7 +149,10 @@ class _HomepageState extends State<Homepage> {
         elevation: 0,
         actions: [
           IconButton(
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const NotificationPage())),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const NotificationPage()),
+            ),
             icon: const Icon(Icons.notifications_active, color: Colors.white),
           ),
         ],
@@ -207,6 +211,12 @@ class _HomepageState extends State<Homepage> {
                   ],
                 ),
 
+              const SizedBox(height: 24), // Add spaceF
+              MealPackagesSection(
+                onActionSuccess: () {
+                  _handleRefresh();
+                },
+              ),
               // --- FIXED FINANCIALS SECTION ---
               if (pendingDuesTotal > 0 || hasProcessingFines) ...[
                 const SizedBox(height: 24),
@@ -244,6 +254,7 @@ class _HomepageState extends State<Homepage> {
                   ),
                 ],
               ),
+
               // --------------------------------
               const SizedBox(height: 24), // Add space
               const HostelRulesWidget(),
@@ -255,8 +266,6 @@ class _HomepageState extends State<Homepage> {
       ),
     );
   }
-
-  // ... (Keep your existing _buildQuickActions, _buildActionItem, _buildSectionHeader, _buildStatCard)
 
   Widget _buildActionItem(
     IconData icon,
@@ -420,7 +429,7 @@ class _HomepageState extends State<Homepage> {
           ),
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
-           const BoxShadow(
+            const BoxShadow(
               color: Colors.black12,
               blurRadius: 10,
               offset: const Offset(0, 5),

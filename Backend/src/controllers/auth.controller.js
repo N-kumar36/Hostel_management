@@ -97,7 +97,7 @@ export const registerUser = async (req, res) => {
 
     // 3. CHECK IF THIS IS THE FIRST USER FOR THIS HOSTEL
     const userCountInHostel = await User.countDocuments({ hostelId });
-    
+
     // Determine Role and Approval Status
     let role = "student";
     let pendingStatus = "pending";
@@ -229,7 +229,7 @@ export const loginUser = async (req, res) => {
 
     // 3. Check if the password matches (Password check)
     const isPasswordValid = await bcrypt.compare(password, user.password);
-    
+
     if (!isPasswordValid) {
       return res.status(401).json({ success: false, message: "Invalid password" });
     }
@@ -252,11 +252,9 @@ export const loginUser = async (req, res) => {
 
 
 export const getProfile = async (req, res) => {
-
-  console.log("getProfile called with user:", req.user); // Debug log to check req.user
+  console.log("getProfile called with user:", req.user);
 
   try {
-    // Ensure the middleware actually found a user
     if (!req.user || !req.user.id) {
       return res.status(401).json({ success: false, message: "Not authorized, no user data" });
     }
@@ -267,7 +265,20 @@ export const getProfile = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found in database" });
     }
 
-    res.json({ success: true, user });
+    // ✨ NEW: Generate a fresh token on profile check to extend session lifespan
+    const newToken = generateToken({
+      id: user._id,
+      hostelId: user.hostelId,
+      email: user.email,
+    });
+
+    // Send the fresh token along with the user data object
+    res.json({
+      success: true,
+      user,
+      token: newToken
+    });
+
   } catch (err) {
     res.status(500).json({ success: false, message: "Server Error: " + err.message });
   }

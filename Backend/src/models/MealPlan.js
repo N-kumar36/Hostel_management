@@ -8,7 +8,7 @@ const mealPlanSchema = new mongoose.Schema({
   },
   planType: { 
     type: String, 
-    enum: ["30 meals", "60 meals"], 
+    enum: ["30 meals", "60 meals", "60 veg meals"], 
     required: true 
   }, // basic = 1000, premium = 1500
   monthlyPrice: { 

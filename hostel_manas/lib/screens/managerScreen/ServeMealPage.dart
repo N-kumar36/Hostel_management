@@ -20,17 +20,17 @@ class _ServeMealPageState extends State<ServeMealPage> {
 
   bool isLoading = false;
   String? processingId;
+  String baseRoutineMenu = "veg"; // Tracks live slot base menu item
 
-  // ✨ FIXED: Computed getters for the summary counters
+  // Computed getters for the summary counters
   int get servedCount => _allVotes.where((v) => v['isServed'] == true).length;
-  
+
   int get notServedCount => _allVotes.where((v) {
-        bool isServed = v['isServed'] == true;
-        String choice = v['choice']?.toString() ?? "";
-        bool hasVoted = choice.isNotEmpty;
-        // ONLY count them as Pending if they haven't been served AND they actually voted
-        return !isServed && hasVoted; 
-      }).length;
+    bool isServed = v['isServed'] == true;
+    String choice = v['choice']?.toString() ?? "";
+    bool hasVoted = choice.isNotEmpty;
+    return !isServed && hasVoted;
+  }).length;
 
   @override
   void initState() {
@@ -63,6 +63,14 @@ class _ServeMealPageState extends State<ServeMealPage> {
       if (mounted) {
         setState(() {
           _allVotes = res['data'] ?? [];
+
+          // Dynamically capture the true base menu configuration snapshot
+          if (_allVotes.isNotEmpty && _allVotes[0]['menuItem'] != null) {
+            baseRoutineMenu = _allVotes[0]['menuItem'].toString().toLowerCase();
+          } else {
+            baseRoutineMenu = "veg";
+          }
+
           _sortAndFilterList();
           isLoading = false;
         });
@@ -77,15 +85,14 @@ class _ServeMealPageState extends State<ServeMealPage> {
 
   void _sortAndFilterList() {
     _allVotes.sort((a, b) {
-      // Helper function to assign priority
       int getPriority(Map<String, dynamic> vote) {
         bool isServed = vote['isServed'] ?? false;
         String choice = vote['choice']?.toString() ?? "";
         bool hasVoted = choice.isNotEmpty;
 
-        if (!isServed && hasVoted) return 1; // Top priority: Voted, but not yet served
-        if (isServed) return 2;              // Middle priority: Served
-        return 3;                            // Lowest priority: Not Voted (Walk-ins)
+        if (!isServed && hasVoted) return 1; // Priority 1: Voted, but Pending
+        if (isServed) return 2; // Priority 2: Served
+        return 3; // Priority 3: Not Voted Walk-ins
       }
 
       return getPriority(a).compareTo(getPriority(b));
@@ -99,20 +106,29 @@ class _ServeMealPageState extends State<ServeMealPage> {
     bool currentValue,
     Map<String, dynamic> studentData,
   ) async {
-    if (uniqueId.isEmpty || processingId != null) {
-      _showSnackBar("Invalid ID", Colors.red);
+    final String? vId = studentData['voteId']?.toString();
+    final String sId = studentData['studentId']?.toString() ?? "";
+
+    // ✨ FIX: If voteId is missing, fall back to studentId so processingId tracking works perfectly
+    final String executionTrackingId = (vId != null && vId.isNotEmpty)
+        ? vId
+        : sId;
+
+    if (executionTrackingId.isEmpty || processingId != null) {
+      _showSnackBar("Invalid transaction target profiles", Colors.red);
       return;
     }
 
-    setState(() => processingId = uniqueId);
+    setState(() => processingId = executionTrackingId);
 
     try {
-      final String? vId = studentData['voteId']?.toString();
-      final String sId = studentData['studentId']?.toString() ?? "";
       String formattedDate = DateFormat('dd/MM/yyyy').format(selectedDate);
 
+      // Trigger the api call network channel passed parameters directly
       final res = await api.updateServeStatus(
-        vId,
+        (vId != null && vId.isNotEmpty)
+            ? vId
+            : "", // Pass clear blank string if unvoted walk-in
         sId,
         formattedDate,
         selectedTime,
@@ -125,39 +141,40 @@ class _ServeMealPageState extends State<ServeMealPage> {
           final String? returnedVoteId = res['voteId']?.toString();
 
           setState(() {
+            // Find the updated row index using matching parameter blocks keys
             final masterIndex = _allVotes.indexWhere(
               (v) =>
-                  (v['voteId']?.toString() == uniqueId) ||
-                  (v['studentId']?.toString() == uniqueId) ||
-                  (v['_id']?.toString() == uniqueId),
+                  (v['voteId']?.toString() == executionTrackingId &&
+                      executionTrackingId.isNotEmpty) ||
+                  (v['studentId']?.toString() == sId && sId.isNotEmpty),
             );
 
             if (masterIndex != -1) {
               _allVotes[masterIndex]['isServed'] = serverStatus;
 
+              // ✨ CRITICAL: Save the backend's generated voteId on the frontend
               if (returnedVoteId != null) {
                 _allVotes[masterIndex]['voteId'] = returnedVoteId;
-              }
-
-              if (serverStatus &&
-                  (_allVotes[masterIndex]['choice'] == null ||
-                      _allVotes[masterIndex]['choice'] == "")) {
-                _allVotes[masterIndex]['choice'] = resolvedMealType;
+                _allVotes[masterIndex]['choice'] =
+                    resolvedMealType; // Changes local value tag text from empty string to routine menu item
               }
             }
 
             _sortAndFilterList();
-            processingId = null;
+            processingId = null; // Clear loader tracking lock safely
           });
 
           _showSnackBar(
-            res['message'] ?? (serverStatus ? "Meal served!" : "Status updated"),
+            res['message'] ??
+                (serverStatus ? "Meal served!" : "Status updated"),
             Colors.green,
           );
         } else {
           setState(() => processingId = null);
-          String errorMsg = res['message'] ?? "Server rejected update";
-          _showSnackBar(errorMsg, Colors.red);
+          _showSnackBar(
+            res['message'] ?? "Server rejected updates",
+            Colors.red,
+          );
         }
       }
     } catch (e) {
@@ -166,6 +183,25 @@ class _ServeMealPageState extends State<ServeMealPage> {
         _showSnackBar("Connection Error: $e", Colors.red);
       }
     }
+  }
+
+  IconData _getChoiceIcon(String choice) {
+    final c = choice.toLowerCase();
+    if (c.contains("chicken")) return Icons.kebab_dining_rounded;
+    if (c.contains("egg")) return Icons.egg_rounded;
+    if (c.contains("fish")) return Icons.set_meal_rounded;
+    if (c.contains("mutton")) return Icons.dinner_dining_rounded;
+    if (c.contains("paneer")) return Icons.bakery_dining_rounded;
+    return Icons.grass_rounded;
+  }
+
+  Color _getChoiceColor(String choice) {
+    final c = choice.toLowerCase();
+    if (c.contains("chicken") || c.contains("mutton"))
+      return Colors.red.shade700;
+    if (c.contains("egg")) return Colors.amber.shade800;
+    if (c.contains("fish")) return Colors.blue.shade700;
+    return Colors.green.shade700;
   }
 
   void _showSnackBar(String message, Color color) {
@@ -203,7 +239,11 @@ class _ServeMealPageState extends State<ServeMealPage> {
                 ? const Center(
                     child: CircularProgressIndicator(color: Colors.orange),
                   )
-                : RefreshIndicator(onRefresh: _fetchData, child: _buildList()),
+                : RefreshIndicator(
+                    onRefresh: _fetchData,
+                    color: Colors.orange,
+                    child: _buildList(),
+                  ),
           ),
         ],
       ),
@@ -231,56 +271,102 @@ class _ServeMealPageState extends State<ServeMealPage> {
   }
 
   Widget _buildFilters() {
+    final Color menuAccentColor = _getChoiceColor(baseRoutineMenu);
+
     return Container(
       padding: const EdgeInsets.all(12.0),
       color: Colors.orange.withOpacity(0.1),
-      child: Row(
+      child: Column(
         children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              icon: const Icon(Icons.calendar_month, size: 18),
-              label: Text(DateFormat('dd/MM/yyyy').format(selectedDate)),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.orange,
-                side: const BorderSide(color: Colors.orange),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.calendar_month, size: 18),
+                  label: Text(DateFormat('dd/MM/yyyy').format(selectedDate)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.orange,
+                    side: const BorderSide(color: Colors.orange),
+                  ),
+                  onPressed: () async {
+                    DateTime? picked = await showDatePicker(
+                      context: context,
+                      initialDate: selectedDate,
+                      firstDate: DateTime(2025),
+                      lastDate: DateTime(2030),
+                    );
+                    if (picked != null) {
+                      setState(() => selectedDate = picked);
+                      _fetchData();
+                    }
+                  },
+                ),
               ),
-              onPressed: () async {
-                DateTime? picked = await showDatePicker(
-                  context: context,
-                  initialDate: selectedDate,
-                  firstDate: DateTime(2025),
-                  lastDate: DateTime(2030),
-                );
-                if (picked != null) {
-                  setState(() => selectedDate = picked);
-                  _fetchData();
-                }
-              },
-            ),
+              const SizedBox(width: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  color: Colors.white,
+                  border: Border.all(color: Colors.orange),
+                ),
+                child: DropdownButton<String>(
+                  value: selectedTime,
+                  underline: const SizedBox(),
+                  items: ["Morning", "Night"]
+                      .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+                      .toList(),
+                  onChanged: (val) {
+                    if (val != null) {
+                      setState(() => selectedTime = val);
+                      _fetchData();
+                    }
+                  },
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              color: Colors.white,
-              border: Border.all(color: Colors.orange),
+
+          // ✨ NEW: Contextual Main Menu Banner placed right below the time dropdown selection
+          if (!isLoading) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: menuAccentColor.withOpacity(0.3)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    _getChoiceIcon(baseRoutineMenu),
+                    color: menuAccentColor,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    "CURRENT BASE MENU: ",
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                  Text(
+                    baseRoutineMenu.toUpperCase(),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                      color: menuAccentColor,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            child: DropdownButton<String>(
-              value: selectedTime,
-              underline: const SizedBox(),
-              items: [
-                "Morning",
-                "Night",
-              ].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
-              onChanged: (val) {
-                if (val != null) {
-                  setState(() => selectedTime = val);
-                  _fetchData();
-                }
-              },
-            ),
-          ),
+          ],
         ],
       ),
     );
@@ -299,8 +385,8 @@ class _ServeMealPageState extends State<ServeMealPage> {
           ),
           const SizedBox(width: 12),
           _buildCounterCard(
-            "PENDING",
-            notServedCount.toString(), // ✨ Now uses the updated logic
+            "PENDING VOTES",
+            notServedCount.toString(),
             Colors.orange,
             Icons.pending_actions,
           ),
@@ -357,7 +443,10 @@ class _ServeMealPageState extends State<ServeMealPage> {
   Widget _buildList() {
     if (_filteredVotes.isEmpty) {
       return const Center(
-        child: Text("No records found", style: TextStyle(color: Colors.grey)),
+        child: Text(
+          "No operational records logged",
+          style: TextStyle(color: Colors.grey),
+        ),
       );
     }
 
@@ -373,57 +462,83 @@ class _ServeMealPageState extends State<ServeMealPage> {
             vote['_id']?.toString() ??
             "";
 
-        final bool served = vote['isServed'] ?? false;
+        final bool served = vote['isServed'] == true;
         final bool isThisItemLoading = processingId == uniqueId;
 
         final String choiceStr = vote['choice']?.toString() ?? "";
         final bool hasVoted = choiceStr.isNotEmpty;
+        final bool isGuest = vote['isGuest'] == true;
+
+        // Determine descriptive visual elements context markers dynamically
+        final String currentChoice = hasVoted ? choiceStr : baseRoutineMenu;
+        final Color choiceColor = isGuest
+            ? Colors.orange.shade800
+            : _getChoiceColor(currentChoice);
 
         return Card(
           margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           elevation: served ? 0 : 2,
-          color: served ? Colors.green.withOpacity(0.05) : Colors.white,
+          color: isGuest
+              ? Colors.orange.shade50.withOpacity(0.3)
+              : (served ? Colors.green.withOpacity(0.05) : Colors.white),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
-            side: served
-                ? BorderSide(color: Colors.green.withOpacity(0.2))
-                : BorderSide.none,
+            side: BorderSide(
+              color: served
+                  ? Colors.green.withOpacity(0.2)
+                  : (isGuest
+                        ? Colors.orange.withOpacity(0.3)
+                        : Colors.grey.shade100),
+              width: 1,
+            ),
           ),
           child: ListTile(
             leading: CircleAvatar(
               backgroundColor: served
                   ? Colors.green.shade100
-                  : Colors.orange.shade100,
+                  : (isGuest ? Colors.orange.shade100 : Colors.orange.shade50),
               backgroundImage:
                   (vote['studentPhoto'] != null && vote['studentPhoto'] != "")
                   ? NetworkImage(vote['studentPhoto'])
                   : null,
               child:
                   (vote['studentPhoto'] == null || vote['studentPhoto'] == "")
-                  ? Text(
-                      vote['studentName']?[0].toUpperCase() ?? "?",
-                      style: TextStyle(
-                        color: served ? Colors.green : Colors.orange,
-                      ),
+                  ? Icon(
+                      isGuest ? Icons.group_add : _getChoiceIcon(currentChoice),
+                      color: served ? Colors.green : choiceColor,
+                      size: 20,
                     )
                   : null,
             ),
             title: Text(
-              vote['studentName'] ?? "Unknown",
+              vote['studentName'] ?? "Unknown Student",
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 decoration: served ? TextDecoration.lineThrough : null,
-                color: served ? Colors.grey : Colors.black,
+                color: served ? Colors.grey : Colors.black87,
               ),
             ),
-            subtitle: Text(
-              hasVoted ? "Choice: ${choiceStr.toUpperCase()}" : "NOT VOTED",
-              style: TextStyle(
-                color: served
-                    ? Colors.grey
-                    : (hasVoted ? Colors.orange.shade700 : Colors.red.shade600),
-                fontWeight: hasVoted ? FontWeight.normal : FontWeight.bold,
-              ),
+            subtitle: Row(
+              children: [
+                Icon(
+                  _getChoiceIcon(currentChoice),
+                  color: served ? Colors.grey : choiceColor,
+                  size: 14,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  isGuest
+                      ? "GUEST CHOICE: ${choiceStr.toUpperCase()}"
+                      : (hasVoted
+                            ? "CHOICE: ${choiceStr.toUpperCase()}"
+                            : "WALK-IN (${baseRoutineMenu.toUpperCase()})"),
+                  style: TextStyle(
+                    color: served ? Colors.grey : choiceColor,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
             ),
             trailing: isThisItemLoading
                 ? const Padding(

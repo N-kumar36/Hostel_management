@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:HostelMess/services/api_service.dart';
 import 'package:HostelMess/services/localServices.dart';
 import 'package:HostelMess/screens/homePagesScreen/financials_page.dart';
+import './utility_screen/meal_packages_section.dart';
 import 'package:intl/intl.dart';
 
 class MyVotesPage extends StatefulWidget {
@@ -17,7 +18,6 @@ class _MyVotesPageState extends State<MyVotesPage> {
 
   // --- State Variables ---
   List<dynamic> guestRequests = [];
-  List<dynamic> availablePackages = [];
   Map<String, dynamic>? activeSubscription;
   String? activePackageId;
 
@@ -33,7 +33,6 @@ class _MyVotesPageState extends State<MyVotesPage> {
 
   double pendingDues = 0.0;
   bool isLoading = true;
-  bool isPackageUpdating = false;
   List<String> availableDates = [];
 
   @override
@@ -42,29 +41,25 @@ class _MyVotesPageState extends State<MyVotesPage> {
     _loadAllData();
   }
 
-  /// Master Data Loader: Fetches all data and handles multiple subscription logic
   Future<void> _loadAllData() async {
     if (!mounted) return;
     setState(() => isLoading = true);
 
     try {
       final results = await Future.wait([
-        api.getVoteSummary(), // StudentSubscription
-        api.getMyFines(), // Fines/Dues
+        api.getVoteSummary(),
+        api.getMyFines(),
         api.getMyGuestMealRequests(),
-        api.getmealPackages(), // Global Plans
       ]);
 
       final subResponse = results[0] as Map<String, dynamic>;
       final fines = results[1] as List<dynamic>?;
       final requests = results[2] as List<dynamic>;
-      final packageResponse = results[3] as Map<String, dynamic>;
 
       double dues = 0.0;
       if (fines != null) {
         for (var f in fines) {
           final status = f['status']?.toString().toLowerCase();
-          // ✅ FIXED: If a fine is 'pending' OR 'rejected', they still owe the money!
           if (status == 'pending' || status == 'rejected') {
             dues += double.tryParse(f['amount'].toString()) ?? 0.0;
           }
@@ -73,18 +68,17 @@ class _MyVotesPageState extends State<MyVotesPage> {
 
       if (mounted) {
         setState(() {
-          // --- Logic to handle multiple subscriptions (Completed vs Active) ---
           if (subResponse['success'] == true &&
+              subResponse['data'] != null &&
               (subResponse['data'] as List).isNotEmpty) {
             final List<dynamic> allSubs = subResponse['data'];
 
-            // Preference: 1. Active/Pending, 2. Else Completed
             activeSubscription = allSubs.firstWhere(
               (s) => s['status'] != "completed",
               orElse: () => allSubs[0],
             );
 
-            activePackageId = activeSubscription!['mealsPlanId'];
+            activePackageId = activeSubscription!['mealsPlanId']?.toString();
 
             final usage = activeSubscription!['usage'] ?? {};
             final limits = activeSubscription!['maxLimits'] ?? {};
@@ -114,15 +108,21 @@ class _MyVotesPageState extends State<MyVotesPage> {
           } else {
             activeSubscription = null;
             activePackageId = null;
+            totalUsed = 0;
+            totalLimit = 0;
+            chickenUsed = chickenMax = fishUsed = fishMax = paneerUsed =
+                paneerMax = 0;
+            muttonUsed = muttonMax = eggUsed = eggMax = vegUsed = vegMax = 0;
           }
 
-          availablePackages = packageResponse['data'] ?? [];
           pendingDues = dues;
           guestRequests = requests;
+
+          // Generate formal standard string formats: "DD/MM/YYYY" to check database documents easily
           availableDates = [
-            DateFormat('yyyy-MM-dd').format(DateTime.now()),
+            DateFormat('dd/MM/yyyy').format(DateTime.now()),
             DateFormat(
-              'yyyy-MM-dd',
+              'dd/MM/yyyy',
             ).format(DateTime.now().add(const Duration(days: 1))),
           ];
           isLoading = false;
@@ -134,33 +134,406 @@ class _MyVotesPageState extends State<MyVotesPage> {
     }
   }
 
-  void _handlePackageSelection(String packageId) async {
-    setState(() => isPackageUpdating = true);
-    try {
-      final result = await api.selectPackage(packageId);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result['message'] ?? "Processed!"),
-            backgroundColor: Colors.green,
-            behavior: SnackBarBehavior.floating,
+  IconData _getVariationIcon(String choice) {
+    final c = choice.toLowerCase();
+    if (c.contains("chicken")) return Icons.kebab_dining_rounded;
+    if (c.contains("egg")) return Icons.egg_rounded;
+    if (c.contains("fish")) return Icons.set_meal_rounded;
+    if (c.contains("veg")) return Icons.grass_rounded;
+    return Icons.restaurant_rounded;
+  }
+
+  Color _getVariationColor(String choice) {
+    final c = choice.toLowerCase();
+    if (c.contains("chicken")) return Colors.red.shade700;
+    if (c.contains("egg")) return Colors.amber.shade800;
+    if (c.contains("fish")) return Colors.blue.shade700;
+    if (c.contains("veg")) return Colors.green.shade700;
+    return Colors.deepPurple;
+  }
+
+  // ✨ NEW CORE FUNCTION: Checks live meal base routine configurations before showing form selectors
+  void _showGuestMealBottomSheet() {
+    String selectedDateStr = availableDates.isNotEmpty
+        ? availableDates.first
+        : "";
+    String selectedTimeStr = "Morning";
+    String guestItemPreference = "regular";
+    int guestCount = 1;
+
+    // Local modal internal checking states variables
+    bool isCheckingMeal = false;
+    bool isMealAvailable = false;
+    String detectedMenuName = "";
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+      ),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          // Helper internal function to call verification endpoint pipeline on date/time toggle shifts
+          Future<void> checkTargetMealRoutine() async {
+            setModalState(() {
+              isCheckingMeal = true;
+              isMealAvailable = false;
+            });
+
+            try {
+              // Re-use your detailed route map parameters tool safely
+              final response = await api.getDetailedVotesByDate(
+                selectedDateStr,
+                selectedTimeStr,
+              );
+
+              setModalState(() {
+                isCheckingMeal = false;
+                // If response succeeds or contains data rows arrays payload, meal is explicitly active
+                if (response['success'] == true || (response['data'] != null)) {
+                  isMealAvailable = true;
+                  if (response['data'] != null &&
+                      (response['data'] as List).isNotEmpty) {
+                    detectedMenuName =
+                        response['data'][0]['menuItem']
+                            ?.toString()
+                            .toUpperCase() ??
+                        "MEAL";
+                  } else {
+                    detectedMenuName = "CONFIGURED ROUTINE";
+                  }
+                } else {
+                  isMealAvailable = false;
+                }
+              });
+            } catch (e) {
+              setModalState(() {
+                isCheckingMeal = false;
+                isMealAvailable =
+                    false; // Evaluates false if 404 block thrown from ApiService catch block
+              });
+            }
+          }
+
+          // Initial auto trigger on open load window thread execution
+          if (!isCheckingMeal && !isMealAvailable && detectedMenuName.isEmpty) {
+            checkTargetMealRoutine();
+          }
+
+          return Padding(
+            padding: EdgeInsets.only(
+              left: 24,
+              right: 24,
+              top: 24,
+              bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  "Request Guest Meal",
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                ),
+                const Divider(height: 32),
+
+                const Text(
+                  "SELECT DATE",
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.deepPurple,
+                  ),
+                ),
+                DropdownButton<String>(
+                  isExpanded: true,
+                  value: selectedDateStr.isNotEmpty ? selectedDateStr : null,
+                  items: availableDates
+                      .map((d) => DropdownMenuItem(value: d, child: Text(d)))
+                      .toList(),
+                  onChanged: (v) {
+                    if (v != null) {
+                      setModalState(() => selectedDateStr = v);
+                      checkTargetMealRoutine();
+                    }
+                  },
+                ),
+                const SizedBox(height: 20),
+
+                const Text(
+                  "MEAL TIME",
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.deepPurple,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    ChoiceChip(
+                      label: const Text("Morning"),
+                      selected: selectedTimeStr == "Morning",
+                      selectedColor: Colors.deepPurple.shade100,
+                      onSelected: (_) {
+                        setModalState(() => selectedTimeStr = "Morning");
+                        checkTargetMealRoutine();
+                      },
+                    ),
+                    const SizedBox(width: 12),
+                    ChoiceChip(
+                      label: const Text("Night"),
+                      selected: selectedTimeStr == "Night",
+                      selectedColor: Colors.deepPurple.shade100,
+                      onSelected: (_) {
+                        setModalState(() => selectedTimeStr = "Night");
+                        checkTargetMealRoutine();
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+
+                // 🌟 CONDITION BLOCK: Evaluate checking status loops seamlessly
+                if (isCheckingMeal) ...[
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 20),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.deepPurple,
+                          ),
+                        ),
+                        SizedBox(width: 12),
+                        Text(
+                          "Checking meal schedule availability...",
+                          style: TextStyle(color: Colors.grey, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else if (!isMealAvailable) ...[
+                  // ✨ SHOW THIS SCREEN BLOCK IF MANAGER HAS NOT CREATED MEAL ROUTINE IN THIS DATE SLOT
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.red.shade200),
+                    ),
+                    child: Column(
+                      children: [
+                        Icon(
+                          Icons.no_food_rounded,
+                          color: Colors.red.shade700,
+                          size: 36,
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          "NO MEAL AVAILABLE FOR THIS DATE",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.red,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          "The mess manager has not created or enabled a meal schedule routine for $selectedTimeStr slot on $selectedDateStr yet.",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.red.shade600,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                ] else ...[
+                  // IF MEAL ACCORDING TO DATE AND TIME SLOT EXISTS -> SHOW FORM VARIATIONS
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 8,
+                      horizontal: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.green.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.restaurant_menu,
+                          color: Colors.green,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          "Menu Base item Detected: ",
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.green.shade900,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          detectedMenuName,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.green,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    "GUEST MEAL VARIATION",
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.deepPurple,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  DropdownButton<String>(
+                    isExpanded: true,
+                    value: guestItemPreference,
+                    items: const [
+                      DropdownMenuItem(
+                        value: "regular",
+                        child: Text("Regular (Follows Routine Menu)"),
+                      ),
+                      DropdownMenuItem(
+                        value: "halal_chicken",
+                        child: Text("Halal Chicken Package"),
+                      ),
+                      DropdownMenuItem(
+                        value: "egg_substitute",
+                        child: Text("Egg Substitute alternative"),
+                      ),
+                      DropdownMenuItem(
+                        value: "veg_forced",
+                        child: Text("Forced Vegetarian Alternative"),
+                      ),
+                    ],
+                    onChanged: (v) {
+                      if (v != null)
+                        setModalState(() => guestItemPreference = v);
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    "GUEST COUNT",
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.deepPurple,
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      IconButton(
+                        onPressed: () => guestCount > 1
+                            ? setModalState(() => guestCount--)
+                            : null,
+                        icon: const Icon(Icons.remove_circle_outline),
+                      ),
+                      Text(
+                        "$guestCount",
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => setModalState(() => guestCount++),
+                        icon: const Icon(Icons.add_circle_outline),
+                      ),
+                    ],
+                  ),
+                ],
+
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isMealAvailable
+                          ? Colors.deepPurple
+                          : Colors.grey.shade400,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.all(18),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    // Disable interaction completely if target check fails
+                    onPressed: (!isMealAvailable || isCheckingMeal)
+                        ? null
+                        : () async {
+                            final res = await api.requestGuestMeal(
+                              guestCount: guestCount,
+                              mealDate: selectedDateStr,
+                              mealTime: selectedTimeStr,
+                              guestItemPreference: guestItemPreference,
+                            );
+                            if (mounted) Navigator.pop(context);
+                            if (res['success'] == true) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    "Guest Request Sent Successfully!",
+                                  ),
+                                  backgroundColor: Colors.green,
+                                ),
+                              );
+                              _loadAllData();
+                            } else {
+                              _showErrorDialog(
+                                res['message'] ?? "Request failed",
+                              );
+                            }
+                          },
+                    child: const Text(
+                      "CONFIRM REQUEST",
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showErrorDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Request Denied"),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("OK"),
           ),
-        );
-        _loadAllData();
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceAll("Exception: ", "")),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => isPackageUpdating = false);
-    }
+        ],
+      ),
+    );
   }
 
   @override
@@ -183,6 +556,7 @@ class _MyVotesPageState extends State<MyVotesPage> {
             )
           : RefreshIndicator(
               onRefresh: _loadAllData,
+              color: Colors.deepPurple,
               child: ListView(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 20,
@@ -194,22 +568,22 @@ class _MyVotesPageState extends State<MyVotesPage> {
                   _buildMainStatsCard(),
                   const SizedBox(height: 12),
                   _buildDetailedUsageGrid(),
-
                   const SizedBox(height: 24),
-                  _buildMealSubscriptionSection(),
-
+                  MealPackagesSection(
+                    onActionSuccess: () {
+                      _loadAllData();
+                    },
+                  ),
                   const SizedBox(height: 24),
                   _sectionHeader("Quick Actions"),
                   const SizedBox(height: 12),
                   pendingDues > 0
                       ? _buildBlockedGuestAction()
                       : _buildGuestMealAction(),
-
                   const SizedBox(height: 24),
                   _sectionHeader("Financial Summary"),
                   const SizedBox(height: 12),
                   _buildPaymentDashboard(),
-
                   const SizedBox(height: 24),
                   _sectionHeader("Guest Meal Status"),
                   const SizedBox(height: 12),
@@ -220,93 +594,6 @@ class _MyVotesPageState extends State<MyVotesPage> {
                 ],
               ),
             ),
-    );
-  }
-
-  // --- UI COMPONENTS ---
-
-  Widget _buildMealSubscriptionSection() {
-    if (activeSubscription == null ||
-        activeSubscription!['status'] == "completed") {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _sectionHeader("Select Meal Package"),
-          const SizedBox(height: 12),
-          _buildMealPackageList(),
-        ],
-      );
-    }
-
-    final String planType = activeSubscription!['planType'] ?? "";
-
-    if (planType == "60 meals") {
-      return const SizedBox.shrink();
-    } else if (planType == "30 meals") {
-      return _buildUpgradeBanner();
-    }
-
-    return const SizedBox.shrink();
-  }
-
-  Widget _buildUpgradeBanner() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Colors.orange, Colors.deepOrange],
-        ),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.bolt, color: Colors.white, size: 35),
-          const SizedBox(width: 15),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                Text(
-                  "UPGRADE AVAILABLE",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Text(
-                  "Unlock 60 meals for ₹500 more",
-                  style: TextStyle(color: Colors.white70, fontSize: 11),
-                ),
-              ],
-            ),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.deepOrange,
-            ),
-            onPressed: isPackageUpdating
-                ? null
-                : () {
-                    // Find the 60 meals package
-                    final sixtyDay = availablePackages.firstWhere(
-                      (p) => p['planType'] == "60 meals",
-                      orElse: () => null,
-                    );
-
-                    if (sixtyDay != null) {
-                      // Trigger the confirmation dialog instead of immediate update
-                      _showUpgradeConfirmDialog(
-                        sixtyDay['_id'],
-                        sixtyDay['planType'],
-                        500, // The upgrade cost
-                      );
-                    }
-                  },
-            child: const Text("PAY ₹500"),
-          ),
-        ],
-      ),
     );
   }
 
@@ -408,78 +695,6 @@ class _MyVotesPageState extends State<MyVotesPage> {
     );
   }
 
-  Widget _buildMealPackageList() {
-    return Column(
-      children: availablePackages
-          .map(
-            (pkg) => _buildOptionCard(
-              id: pkg['_id'],
-              title: pkg['planType'],
-              price: pkg['monthlyPrice'],
-            ),
-          )
-          .toList(),
-    );
-  }
-
-  Widget _buildOptionCard({
-    required String id,
-    required String title,
-    required int price,
-  }) {
-    return GestureDetector(
-      // Change this line:
-      onTap: isPackageUpdating
-          ? null
-          : () => _showConfirmPlanDialog(id, title, price),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.grey.shade300),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 5,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
-                const Text(
-                  "Monthly Plan",
-                  style: TextStyle(color: Colors.grey, fontSize: 12),
-                ),
-              ],
-            ),
-            Text(
-              "₹$price",
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.deepPurple,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildPaymentDashboard() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -513,164 +728,6 @@ class _MyVotesPageState extends State<MyVotesPage> {
     );
   }
 
-  // --- GUEST MEAL BOTTOM SHEET ---
-
-  void _showGuestMealBottomSheet() {
-    String selectedDate = availableDates.first;
-    String selectedTime = "Night";
-    int guestCount = 1;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
-      ),
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => Padding(
-          padding: EdgeInsets.only(
-            left: 24,
-            right: 24,
-            top: 24,
-            bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                "Request Guest Meal",
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-              ),
-              const Divider(height: 32),
-              const Text(
-                "SELECT DATE",
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.deepPurple,
-                ),
-              ),
-              DropdownButton<String>(
-                isExpanded: true,
-                value: selectedDate,
-                items: availableDates
-                    .map((d) => DropdownMenuItem(value: d, child: Text(d)))
-                    .toList(),
-                onChanged: (v) => setModalState(() => selectedDate = v!),
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                "MEAL TIME",
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.deepPurple,
-                ),
-              ),
-              Row(
-                children: [
-                  ChoiceChip(
-                    label: const Text("Morning"),
-                    selected: selectedTime == "Morning",
-                    onSelected: (_) =>
-                        setModalState(() => selectedTime = "Morning"),
-                  ),
-                  const SizedBox(width: 12),
-                  ChoiceChip(
-                    label: const Text("Night"),
-                    selected: selectedTime == "Night",
-                    onSelected: (_) =>
-                        setModalState(() => selectedTime = "Night"),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                "GUEST COUNT",
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.deepPurple,
-                ),
-              ),
-              Row(
-                children: [
-                  IconButton(
-                    onPressed: () => guestCount > 1
-                        ? setModalState(() => guestCount--)
-                        : null,
-                    icon: const Icon(Icons.remove_circle_outline),
-                  ),
-                  Text(
-                    "$guestCount",
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => setModalState(() => guestCount++),
-                    icon: const Icon(Icons.add_circle_outline),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.deepPurple,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.all(18),
-                  ),
-                  onPressed: () async {
-                    final res = await api.requestGuestMeal(
-                      guestCount: guestCount,
-                      mealDate: selectedDate,
-                      mealTime: selectedTime,
-                    );
-                    Navigator.pop(context);
-                    if (res['success']) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text("Request Sent"),
-                          backgroundColor: Colors.green,
-                        ),
-                      );
-                      _loadAllData();
-                    } else {
-                      _showErrorDialog(res['message']);
-                    }
-                  },
-                  child: const Text("CONFIRM REQUEST"),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showErrorDialog(String message) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Request Denied"),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("OK"),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // --- HELPERS ---
-
   Widget _sectionHeader(String title) => Text(
     title,
     style: const TextStyle(
@@ -681,13 +738,15 @@ class _MyVotesPageState extends State<MyVotesPage> {
   );
 
   Widget _buildEmptyStatus() => const Center(
-    child: Text(
-      "No requests",
-      style: TextStyle(fontSize: 12, color: Colors.grey),
+    child: Padding(
+      padding: EdgeInsets.symmetric(vertical: 20),
+      child: Text(
+        "No requests found",
+        style: TextStyle(fontSize: 12, color: Colors.grey),
+      ),
     ),
   );
 
-  // ✅ FIXED: Reused the consistent status badge component
   Widget _buildStatusBadge(String status) {
     Color color;
     switch (status.toLowerCase()) {
@@ -723,10 +782,12 @@ class _MyVotesPageState extends State<MyVotesPage> {
     );
   }
 
-  // ✅ FIXED: UI for Guest Request List matches the clean look of the Financials pages
   Widget _buildGuestRequestsList() {
     return Column(
       children: guestRequests.map((req) {
+        final String pref = req['guestItemPreference']?.toString() ?? "regular";
+        final Color choiceColor = _getVariationColor(pref);
+
         return Card(
           elevation: 0,
           margin: const EdgeInsets.only(bottom: 10),
@@ -737,13 +798,38 @@ class _MyVotesPageState extends State<MyVotesPage> {
           child: ListTile(
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 16,
-              vertical: 4,
+              vertical: 6,
             ),
             title: Text(
               "${req['guestCount']} Guests - ${req['mealTime']}",
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
-            subtitle: Text(req['mealDate']),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 2),
+                Text(
+                  req['mealDate'] ?? "",
+                  style: const TextStyle(fontSize: 12),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(_getVariationIcon(pref), size: 12, color: choiceColor),
+                    const SizedBox(width: 4),
+                    Text(
+                      pref.replaceAll('_', ' ').toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: choiceColor,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
             trailing: _buildStatusBadge(req['status'] ?? 'pending'),
           ),
         );
@@ -756,9 +842,13 @@ class _MyVotesPageState extends State<MyVotesPage> {
       backgroundColor: Colors.deepPurple,
       foregroundColor: Colors.white,
       minimumSize: const Size(double.infinity, 50),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     ),
     onPressed: _showGuestMealBottomSheet,
-    child: const Text("REQUEST GUEST MEAL"),
+    child: const Text(
+      "REQUEST GUEST MEAL",
+      style: TextStyle(fontWeight: FontWeight.bold),
+    ),
   );
 
   Widget _buildBlockedGuestAction() => Container(
@@ -766,6 +856,7 @@ class _MyVotesPageState extends State<MyVotesPage> {
     decoration: BoxDecoration(
       color: Colors.red.shade50,
       borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: Colors.red.shade100),
     ),
     child: const Row(
       children: [
@@ -780,82 +871,4 @@ class _MyVotesPageState extends State<MyVotesPage> {
       ],
     ),
   );
-
-  // conform dialog
-  void _showConfirmPlanDialog(String id, String title, int price) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          title: const Text("Confirm Selection"),
-          content: Text(
-            "Do you want to subscribe to the $title plan for ₹$price?",
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("CANCEL", style: TextStyle(color: Colors.grey)),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.deepPurple,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              onPressed: () {
-                Navigator.pop(context); // Close dialog
-                _handlePackageSelection(id); // Execute the API call
-              },
-              child: const Text("CONFIRM"),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _showUpgradeConfirmDialog(String id, String title, int cost) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: const [
-            Icon(Icons.unfold_more, color: Colors.orange),
-            SizedBox(width: 10),
-            Text("Confirm Upgrade"),
-          ],
-        ),
-        content: Text(
-          "Are you sure you want to upgrade to $title?\n\nAn additional charge of ₹$cost will be applied to your account.",
-          style: const TextStyle(fontSize: 15),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("NOT NOW", style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orange,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-            onPressed: () {
-              Navigator.pop(context); // Close dialog
-              _handlePackageSelection(id); // Execute update
-            },
-            child: const Text("CONFIRM & PAY"),
-          ),
-        ],
-      ),
-    );
-  }
 }

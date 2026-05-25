@@ -1,97 +1,169 @@
-import moment from "moment"; 
+import moment from "moment";
 import Meal from "../models/Meal.js";
-import mongoose from 'mongoose';
-import WeeklyRoutine from "../models/WeeklyRoutine.js"; 
+import WeeklyRoutine from "../models/WeeklyRoutine.js";
 
+/**
+ * 🔄 INTERNAL HELPER: Recalculates and rearranges the entire active 
+ * meal sequence numbers from 1 to 60, ignoring cancelled slots.
+ * Fixed: Chronological javascript sorting eliminates the mixed-up string indexing bug!
+ */
+const recalculateMealNumbers = async (hostelId) => {
+  // 1. Fetch all documents for this specific hostel
+  const allMeals = await Meal.find({ hostelId });
+
+  // 2. Sort them accurately in JavaScript using true date comparison operations
+  allMeals.sort((a, b) => {
+    const [dayA, monthA, yearA] = a.date.split("/").map(Number);
+    const [dayB, monthB, yearB] = b.date.split("/").map(Number);
+
+    const dateA = new Date(yearA, monthA - 1, dayA);
+    const dateB = new Date(yearB, monthB - 1, dayB);
+
+    if (dateA.getTime() !== dateB.getTime()) {
+      return dateA - dateB;
+    }
+    // Secondary fallback sorting parameter if dates match exactly
+    return (a.createdAt || 0) - (b.createdAt || 0);
+  });
+
+  let sequentialCounter = 0;
+
+  for (let meal of allMeals) {
+    let modified = false;
+
+    // --- Process Morning Slot ---
+    if (!meal.morning.isCancelled) {
+      sequentialCounter++;
+      // Reset count back to 1 when hitting package maximum baseline cycle limits (e.g., 61 becomes 1)
+      const relativeNum = ((sequentialCounter - 1) % 60) + 1;
+
+      if (meal.morning.mealsNum !== relativeNum.toString()) {
+        meal.morning.mealsNum = relativeNum.toString();
+        modified = true;
+      }
+    } else {
+      if (meal.morning.mealsNum !== "0") {
+        meal.morning.mealsNum = "0";
+        modified = true;
+      }
+    }
+
+    // --- Process Night Slot ---
+    if (!meal.night.isCancelled) {
+      sequentialCounter++;
+      const relativeNum = ((sequentialCounter - 1) % 60) + 1;
+
+      if (meal.night.mealsNum !== relativeNum.toString()) {
+        meal.night.mealsNum = relativeNum.toString();
+        modified = true;
+      }
+    } else {
+      if (meal.night.mealsNum !== "0") {
+        meal.night.mealsNum = "0";
+        modified = true;
+      }
+    }
+
+    if (modified) {
+      await meal.save();
+    }
+  }
+};
+
+/**
+ * @desc    Create or update a master daily meal layout configuration
+ * @route   POST /api/meals/create
+ */
 export const createMeal = async (req, res) => {
   try {
     const { date, morning, night } = req.body;
-    const hostelId = req.user.hostelId; // From authMiddleware
+    const hostelId = req.user.hostelId;
 
     if (!date || !morning || !night) {
       return res.status(400).json({ success: false, message: "Missing required fields" });
     }
 
-    // 1. Check if a meal for this date already exists for this hostel
     const existingMeal = await Meal.findOne({ date, hostelId });
 
     if (existingMeal) {
-      // FIX: Use new Date() to ensure proper ISO storage in MongoDB
       existingMeal.morning.manu = morning.manu;
       existingMeal.morning.lockTime = new Date(morning.lockTime);
+
+      if (morning.isCancelled !== undefined) existingMeal.morning.isCancelled = morning.isCancelled;
+
       existingMeal.night.manu = night.manu;
       existingMeal.night.lockTime = new Date(night.lockTime);
+      if (night.isCancelled !== undefined) existingMeal.night.isCancelled = night.isCancelled;
 
       await existingMeal.save();
-      return res.status(200).json({ success: true, message: "Meal plan updated", meal: existingMeal });
+
+      await recalculateMealNumbers(hostelId);
+
+      const updatedMeal = await Meal.findOne({ date, hostelId });
+      return res.status(200).json({ success: true, message: "Meal plan updated successfully.", meal: updatedMeal });
     }
 
-    // 2. Generate Serial Numbers (MealsNum)
-    const activeCount = await Meal.countDocuments({ hostelId });
-    const nextMorningNum = (activeCount * 2 + 1).toString();
-    const nextNightNum = (activeCount * 2 + 2).toString();
-
-    // 3. Create New Meal
     const meal = await Meal.create({
       hostelId,
       date,
       morning: {
         manu: morning.manu,
-        mealsNum: nextMorningNum,
-        lockTime: new Date(morning.lockTime), // ✅ FIX: Parse as Date object
+        mealsNum: "0",
+        lockTime: new Date(morning.lockTime),
         isLocked: false,
         isCancelled: false,
+        studentVotes: [],
+        guestRequests: []
       },
       night: {
         manu: night.manu,
-        mealsNum: nextNightNum,
-        lockTime: new Date(night.lockTime), // ✅ FIX: Parse as Date object
+        mealsNum: "0",
+        lockTime: new Date(night.lockTime),
         isLocked: false,
         isCancelled: false,
+        studentVotes: [],
+        guestRequests: []
       },
     });
 
-    res.status(201).json({ success: true, message: "Meal plan created", meal });
+    await recalculateMealNumbers(hostelId);
+    const finalSavedMeal = await Meal.findById(meal._id);
+
+    return res.status(201).json({ success: true, message: "Meal plan created successfully.", meal: finalSavedMeal });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
 
-// Auto Generate Meals based on Routine
-// Auto Generate Meals based on Routine
-// Auto Generate Meals based on Routine
+/**
+ * @desc    Auto-generate batch meal routines across customized execution windows
+ * @route   POST /api/meals/auto-generate
+ */
 export const autoGenerateMeals = async (req, res) => {
   try {
-    // ✨ FIX: Destructure the new lock times from the request body
-    const { startDate, endDate, morningLockTime, nightLockTime } = req.body; 
+    const { startDate, endDate, morningLockTime, nightLockTime } = req.body;
     const hostelId = req.user.hostelId;
 
     if (!startDate || !endDate) {
       return res.status(400).json({ success: false, message: "Start date and End date are required." });
     }
 
-    // Parse the times (Fallback to 07:00 and 17:00 if not provided)
     const mTime = morningLockTime || "07:00";
     const nTime = nightLockTime || "17:00";
-    
     const [mHour, mMin] = mTime.split(':').map(Number);
     const [nHour, nMin] = nTime.split(':').map(Number);
 
-    // 1. Get the routine for this hostel
-    const routineDoc = await WeeklyRoutine.findOne({ hostelId: hostelId });
+    const routineDoc = await WeeklyRoutine.findOne({ hostelId });
     if (!routineDoc || !routineDoc.routine) {
       return res.status(400).json({ success: false, message: "Weekly routine is missing. Please set it first." });
     }
     const routine = routineDoc.routine;
 
-    // 2. Parse startDate and endDate
     const [sDay, sMonth, sYear] = startDate.split('/');
     let currentDate = new Date(sYear, sMonth - 1, sDay);
-    
     const [eDay, eMonth, eYear] = endDate.split('/');
     let finalDate = new Date(eYear, eMonth - 1, eDay);
 
-    // Normalize hours to ensure accurate Date comparison loop
     currentDate.setHours(0, 0, 0, 0);
     finalDate.setHours(0, 0, 0, 0);
 
@@ -100,89 +172,63 @@ export const autoGenerateMeals = async (req, res) => {
     }
 
     let createdCount = 0;
-    let activeCount = await Meal.countDocuments({ hostelId: hostelId });
 
-    // 3. Loop and create meals UNTIL we pass the finalDate
     while (currentDate <= finalDate) {
       const dateString = `${String(currentDate.getDate()).padStart(2, '0')}/${String(currentDate.getMonth() + 1).padStart(2, '0')}/${currentDate.getFullYear()}`;
-      
       let dayOfWeek = currentDate.getDay();
-      if (dayOfWeek === 0) dayOfWeek = 7; 
-      
+      if (dayOfWeek === 0) dayOfWeek = 7;
+
       const dayKey = dayOfWeek.toString();
       const dayRoutine = routine.get ? routine.get(dayKey) : routine[dayKey];
-      
-      if (dayRoutine) {
-        const existingMeal = await Meal.findOne({ date: dateString, hostelId: hostelId });
-        
-        if (!existingMeal) {
-          
-          // ✨ FIX: Apply the dynamically selected hours and minutes
-          const morningLock = new Date(Date.UTC(
-            currentDate.getFullYear(), 
-            currentDate.getMonth(), 
-            currentDate.getDate(), 
-            mHour, mMin, 0
-          )); 
-          
-          const nightLock = new Date(Date.UTC(
-            currentDate.getFullYear(), 
-            currentDate.getMonth(), 
-            currentDate.getDate(), 
-            nHour, nMin, 0
-          )); 
 
-          const nextMorningNum = (activeCount * 2 + 1).toString();
-          const nextNightNum = (activeCount * 2 + 2).toString();
+      if (dayRoutine) {
+        const existingMeal = await Meal.findOne({ date: dateString, hostelId });
+
+        if (!existingMeal) {
+          const morningLock = new Date(Date.UTC(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), mHour, mMin, 0));
+          const nightLock = new Date(Date.UTC(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), nHour, nMin, 0));
 
           await Meal.create({
-            hostelId: hostelId,
+            hostelId,
             date: dateString,
-            morning: { manu: dayRoutine.morning, mealsNum: nextMorningNum, lockTime: morningLock, isCancelled: false },
-            night: { manu: dayRoutine.night, mealsNum: nextNightNum, lockTime: nightLock, isCancelled: false }
+            morning: { manu: dayRoutine.morning, mealsNum: "0", lockTime: morningLock, isCancelled: false, studentVotes: [], guestRequests: [] },
+            night: { manu: dayRoutine.night, mealsNum: "0", lockTime: nightLock, isCancelled: false, studentVotes: [], guestRequests: [] }
           });
-          
-          activeCount++;
           createdCount++;
-        } else {
-          console.log(`Meal already exists for ${dateString}, skipping.`);
         }
-      } else {
-        console.log(`No routine found in DB for Day ${dayKey}`);
       }
-      
-      // Move to the next day
       currentDate.setDate(currentDate.getDate() + 1);
     }
 
-    res.status(200).json({ 
-      success: true, 
-      message: `Successfully generated ${createdCount} new meals.` 
-    });
+    if (createdCount > 0) {
+      await recalculateMealNumbers(hostelId);
+    }
 
+    return res.status(200).json({ success: true, message: `Successfully generated ${createdCount} new meals.` });
   } catch (error) {
-    console.error("Auto Generate Error:", error);
-    res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-
+/**
+ * @desc    Inline meal updating controller
+ * @route   PUT /api/meals/update/:mealId
+ */
 export const updateMeal = async (req, res) => {
   try {
     const { mealId } = req.params;
     const updateData = {};
 
-    // Use Dot Notation to update specific nested fields only
     if (req.body.morning) {
       if (req.body.morning.manu) updateData["morning.manu"] = req.body.morning.manu;
       if (req.body.morning.isCancelled !== undefined) updateData["morning.isCancelled"] = req.body.morning.isCancelled;
-      if (req.body.morning.lockTime) updateData["morning.lockTime"] = new Date(req.body.morning.lockTime); 
+      if (req.body.morning.lockTime) updateData["morning.lockTime"] = new Date(req.body.morning.lockTime);
     }
 
     if (req.body.night) {
       if (req.body.night.manu) updateData["night.manu"] = req.body.night.manu;
       if (req.body.night.isCancelled !== undefined) updateData["night.isCancelled"] = req.body.night.isCancelled;
-      if (req.body.night.lockTime) updateData["night.lockTime"] = new Date(req.body.night.lockTime); 
+      if (req.body.night.lockTime) updateData["night.lockTime"] = new Date(req.body.night.lockTime);
     }
 
     const updatedMeal = await Meal.findByIdAndUpdate(
@@ -191,25 +237,264 @@ export const updateMeal = async (req, res) => {
       { new: true, runValidators: true }
     );
 
-    res.json({ success: true, meal: updatedMeal });
+    await recalculateMealNumbers(req.user.hostelId);
+
+    return res.json({ success: true, meal: updatedMeal });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// Get all planned meals (Sorted by date)
+/**
+ * @desc    Cancel whole daily meal routine (Toggles both morning & night slots to cancelled)
+ * @route   PUT /api/meals/cancel/:id
+ */
+export const cancelMeal = async (req, res) => {
+  try {
+    const meal = await Meal.findOneAndUpdate(
+      { _id: req.params.id, hostelId: req.user.hostelId },
+      { $set: { "morning.isCancelled": true, "night.isCancelled": true, "morning.mealsNum": "0", "night.mealsNum": "0" } },
+      { new: true }
+    );
+
+    if (!meal) {
+      return res.status(404).json({ success: false, message: "Meal not found" });
+    }
+
+    await recalculateMealNumbers(req.user.hostelId);
+
+    return res.json({ success: true, message: "Meal items marked as cancelled and sequence re-arranged." });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/**
+ * @desc    Atomically cast a personal plate vote with dynamic item preferences mapping
+ * @route   POST /api/meals/vote
+ */
+export const castVote = async (req, res) => {
+  try {
+    const { mealId, timeSlot, itemPreference } = req.body;
+    const studentId = req.user._id || req.user.id;
+
+    const mealDoc = await Meal.findById(mealId);
+    if (!mealDoc) return res.status(404).json({ success: false, message: "Schedule timeline parameters not found." });
+
+    const slot = mealDoc[timeSlot];
+    if (!slot) return res.status(400).json({ success: false, message: "Invalid time slot target definition." });
+
+    if (slot.isCancelled) return res.status(400).json({ success: false, message: "Voting rejected. This meal slot has been cancelled." });
+    if (slot.isLocked || new Date() > new Date(slot.lockTime)) {
+      return res.status(400).json({ success: false, message: "Voting locked. The modification cutoff deadline has passed." });
+    }
+
+    const baseMenu = slot.manu;
+    let calculatedMenuAllocation = baseMenu;
+
+    if (itemPreference === "halal_chicken") {
+      if (baseMenu !== "chicken") {
+        return res.status(400).json({ success: false, message: "Halal Chicken variation is restricted unless core menu option is chicken." });
+      }
+      calculatedMenuAllocation = "halal_chicken";
+    }
+    else if (itemPreference === "egg_substitute") {
+      if (baseMenu === "veg") {
+        return res.status(400).json({ success: false, message: "Cannot swap out a pure vegetarian plate menu layout tier for egg variants." });
+      }
+      calculatedMenuAllocation = "egg";
+    }
+    else if (itemPreference === "veg_forced") {
+      calculatedMenuAllocation = "veg";
+    }
+
+    slot.studentVotes.push({
+      userId: studentId,
+      itemPreference: itemPreference || "regular",
+      finalAllocatedMenu: calculatedMenuAllocation
+    });
+
+    await mealDoc.save();
+    return res.status(200).json({ success: true, message: `Vote registered successfully as ${calculatedMenuAllocation}!` });
+
+  } catch (error) {
+    if (error.code === 11000) return res.status(400).json({ success: false, message: "Duplicate attempt. You already voted for this slot period configuration." });
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Submit a guest meal reservation array block request into a daily schedule slot
+ * @route   POST /api/meals/request-guest
+ */
+export const requestGuestMeal = async (req, res) => {
+  try {
+    const { date, timeSlot, guestCount, guestItemPreference } = req.body;
+    const studentId = req.user._id;
+
+    const mealDoc = await Meal.findOne({ hostelId: req.user.hostelId, date });
+    if (!mealDoc) return res.status(404).json({ success: false, message: "Mess schedule timeline data entry map index missing." });
+
+    const slot = mealDoc[timeSlot];
+    if (slot.isLocked || new Date() > new Date(slot.lockTime)) {
+      return res.status(400).json({ success: false, message: "Guest reservations loop timeline for this menu space has closed." });
+    }
+
+    slot.guestRequests.push({
+      studentId,
+      guestCount: parseInt(guestCount) || 1,
+      guestItemPreference: guestItemPreference || "regular",
+      status: "pending"
+    });
+
+    await mealDoc.save();
+    return res.status(200).json({ success: true, message: "Guest plate booking request routed waiting for review." });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Calculate exact grocery count allocations for the cooking staff members
+ * @route   GET /api/meals/kitchen-metrics/:id
+ */
+export const getKitchenCookingMetrics = async (req, res) => {
+  try {
+    const mealDoc = await Meal.findById(req.params.id).lean();
+    if (!mealDoc) return res.status(404).json({ success: false, message: "Daily collection file profile missing." });
+
+    const calculateSlotMetrics = (slot) => {
+      const votes = slot.studentVotes || [];
+      const approvedGuests = (slot.guestRequests || []).filter(g => g.status === "approved");
+
+      let veg = votes.filter(v => v.finalAllocatedMenu === "veg").length;
+      let egg = votes.filter(v => v.finalAllocatedMenu === "egg").length;
+      let paneer = votes.filter(v => v.finalAllocatedMenu === "paneer").length;
+      let chicken = votes.filter(v => v.finalAllocatedMenu === "chicken").length;
+      let halalChicken = votes.filter(v => v.finalAllocatedMenu === "halal_chicken").length;
+      let fish = votes.filter(v => v.finalAllocatedMenu === "fish").length;
+      let mutton = votes.filter(v => v.finalAllocatedMenu === "mutton").length;
+
+      approvedGuests.forEach(g => {
+        const pref = g.guestItemPreference;
+        const base = slot.manu;
+
+        if (pref === "halal_chicken" && base === "chicken") halalChicken += g.guestCount;
+        else if (pref === "egg_substitute" && base !== "veg") egg += g.guestCount;
+        else if (pref === "veg_forced") veg += g.guestCount;
+        else {
+          if (base === "veg") veg += g.guestCount;
+          if (base === "egg") egg += g.guestCount;
+          if (base === "paneer") paneer += g.guestCount;
+          if (base === "chicken") chicken += g.guestCount;
+          if (base === "fish") fish += g.guestCount;
+          if (base === "mutton") mutton += g.guestCount;
+        }
+      });
+
+      return {
+        baseRoutineMenu: slot.manu,
+        isCancelled: slot.isCancelled,
+        isLocked: slot.isLocked,
+        totalPlatesToCook: votes.length + approvedGuests.reduce((s, g) => s + g.guestCount, 0),
+        breakdown: { veg, egg, paneer, chicken, halalChicken, fish, mutton }
+      };
+    };
+
+    return res.status(200).json({
+      success: true,
+      date: mealDoc.date,
+      morning: calculateSlotMetrics(mealDoc.morning),
+      night: calculateSlotMetrics(mealDoc.night)
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Fetch meal status breakdown list maps history records for checking app progress rings charts
+ * @route   GET /api/meals/status/:studentId
+ */
+export const getMealStatus = async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const hostelId = req.user.hostelId;
+
+    const rawMeals = await Meal.find({ hostelId }).lean();
+
+    let totalMealsThisMonth = 0;
+    let mealsConsumed = 0;
+    const historyList = [];
+
+    const currentMonthStr = String(new Date().getMonth() + 1).padStart(2, '0');
+    const currentYearStr = String(new Date().getFullYear());
+
+    for (const meal of rawMeals) {
+      const dateParts = meal.date.split('/');
+      const isCurrentMonth = dateParts[1] === currentMonthStr && dateParts[2] === currentYearStr;
+
+      if (!meal.morning.isCancelled) {
+        if (isCurrentMonth) totalMealsThisMonth++;
+        const morningVote = meal.morning.studentVotes.find(v => v.userId.toString() === studentId);
+        if (morningVote && morningVote.isServed && isCurrentMonth) mealsConsumed++;
+
+        historyList.push({
+          date: meal.date,
+          timeSlot: "morning",
+          menuItem: morningVote ? morningVote.finalAllocatedMenu : meal.morning.manu,
+          isCancelled: false,
+          voted: !!morningVote,
+          isServed: morningVote ? morningVote.isServed : false
+        });
+      } else {
+        historyList.push({ date: meal.date, timeSlot: "morning", menuItem: meal.morning.manu, isCancelled: true, voted: false, isServed: false });
+      }
+
+      if (!meal.night.isCancelled) {
+        if (isCurrentMonth) totalMealsThisMonth++;
+        const nightVote = meal.night.studentVotes.find(v => v.userId.toString() === studentId);
+        if (nightVote && nightVote.isServed && isCurrentMonth) mealsConsumed++;
+
+        historyList.push({
+          date: meal.date,
+          timeSlot: "night",
+          menuItem: nightVote ? nightVote.finalAllocatedMenu : meal.night.manu,
+          isCancelled: false,
+          voted: !!nightVote,
+          isServed: nightVote ? nightVote.isServed : false
+        });
+      } else {
+        historyList.push({ date: meal.date, timeSlot: "night", menuItem: meal.night.manu, isCancelled: true, voted: false, isServed: false });
+      }
+    }
+
+    historyList.sort((a, b) => {
+      const splitA = a.date.split('/');
+      const splitB = b.date.split('/');
+      return new Date(splitB[2], splitB[1] - 1, splitB[0]) - new Date(splitA[2], splitA[1] - 1, splitA[0]);
+    });
+
+    return res.status(200).json({
+      success: true,
+      totalMealsThisMonth,
+      mealsConsumed,
+      history: historyList
+    });
+
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 export const getAllMeals = async (req, res) => {
   try {
-    // 1. Security Check: Ensure the user belongs to a hostel
-    const userHostelId = req.user.hostelId; // From your auth middleware
+    const userHostelId = req.user.hostelId;
     if (!userHostelId) {
       return res.status(403).json({ success: false, message: "Access denied. No hostel assigned." });
     }
 
-    // 2. Date Logic: Prepare current month and upcoming month strings
     const now = new Date();
-
-    // Helper to format MM/YYYY
     const getMonthYear = (date) => {
       const m = String(date.getMonth() + 1).padStart(2, '0');
       const y = date.getFullYear();
@@ -217,207 +502,51 @@ export const getAllMeals = async (req, res) => {
     };
 
     const currentMonth = getMonthYear(now);
-
-    // Get next month for "upcoming" meal planning
     const nextMonthDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
     const nextMonth = getMonthYear(nextMonthDate);
 
-    // 3. Secure Query: Filter by Hostel ID AND (Current Month OR Next Month)
-    // Using a regex with an "OR" (|) operator to match either month suffix
     const meals = await Meal.find({
-      hostelId: userHostelId, 
-      date: {
-        $regex: new RegExp(`(${currentMonth}|${nextMonth})$`)
-      }
+      hostelId: userHostelId,
+      date: { $regex: new RegExp(`(${currentMonth}|${nextMonth})$`) }
     }).sort({ date: 1 });
 
-    res.status(200).json({
-      success: true,
-      count: meals.length,
-      meals: meals
-    });
+    return res.status(200).json({ success: true, count: meals.length, meals });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Error fetching meals: " + error.message
-    });
+    return res.status(500).json({ success: false, message: "Error fetching meals: " + error.message });
   }
 };
 
-/**
- * GET /api/meals/week
- */
 export const getWeeklyMeals = async (req, res) => {
   try {
-    // 1. Fetch all meals for this hostel
-    const allMeals = await Meal.find({
-      hostelId: req.user.hostelId,
-    }).sort({ createdAt: 1 });
-
-    // 2. Get today's date at midnight for accurate comparison
+    const allMeals = await Meal.find({ hostelId: req.user.hostelId }).sort({ createdAt: 1 });
     const today = moment().startOf('day');
 
-    // 3. Filter: Only keep meals where the date is today or in the future
     const filteredMeals = allMeals.filter(meal => {
-      // Parse "DD/MM/YYYY" string into a date object
       const mealDate = moment(meal.date, "DD/MM/YYYY");
       return mealDate.isSameOrAfter(today);
     });
 
-    // 4. Limit to 30 days of upcoming meals
     const meals = filteredMeals.slice(0, 30);
 
     if (!meals || meals.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "No upcoming meal plans found."
-      });
+      return res.status(404).json({ success: false, message: "No upcoming meal plans found." });
     }
 
-    res.json({ success: true, meals });
+    return res.json({ success: true, meals });
   } catch (err) {
-    console.error("Fetch Weekly Meal Error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
 
-/**
- * DELETE /api/meals/:id
- * Soft cancel meal (whole day)
- */
-export const cancelMeal = async (req, res) => {
-  try {
-    const meal = await Meal.findOneAndUpdate(
-      { _id: req.params.id, hostelId: req.user.hostelId },
-      { isCancelled: true },
-      { new: true }
-    );
-
-    if (!meal) {
-      return res.status(404).json({
-        success: false,
-        message: "Meal not found",
-      });
-    }
-
-    res.json({
-      success: true,
-      message: "Meal marked as cancelled",
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-/**
- * GET /api/meals/today
- */
 export const getTodayMeals = async (req, res) => {
   try {
     const today = new Date();
-    // ✅ BUG FIX: Strictly format as DD/MM/YYYY so it never fails on cloud servers
     const todayStr = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
 
-    const meal = await Meal.findOne({
-      hostelId: req.user.hostelId,
-      date: todayStr,
-      isCancelled: false,
-    });
+    const meal = await Meal.findOne({ hostelId: req.user.hostelId, date: todayStr });
 
-    res.json({ success: true, meal });
+    return res.json({ success: true, meal });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-/// get meal status
-export const getMealStatus = async (req, res) => {
-  try {
-    const { studentId } =  req.params; 
-    const hostelId = req.user.hostelId; 
-
-    const result = await Meal.aggregate([
-      // 1. Filter by Hostel
-      { $match: { hostelId: new mongoose.Types.ObjectId(hostelId) } },
-
-      // 2. Process Slots individually
-      {
-        $project: {
-          date: 1,
-          slots: [
-            { timeSlot: "morning", manu: "$morning.manu", isCancelled: "$morning.isCancelled" },
-            { timeSlot: "night", manu: "$night.manu", isCancelled: "$night.isCancelled" }
-          ]
-        }
-      },
-      { $unwind: "$slots" },
-
-      // 3. Join with Votes to check 'voted' and 'isServed'
-      {
-        $lookup: {
-          from: "votes",
-          let: { meal_id: "$_id", slot_name: "$slots.timeSlot" },
-          pipeline: [
-            {
-              $match: {
-                $expr: {
-                  $and: [
-                    { $eq: ["$mealId", "$$meal_id"] },
-                    { $eq: ["$timeSlot", "$$slot_name"] },
-                    { $eq: ["$userId", new mongoose.Types.ObjectId(studentId)] }
-                  ]
-                }
-              }
-            }
-          ],
-          as: "voteData"
-        }
-      },
-
-      // 4. Shape the data
-      {
-        $project: {
-          date: 1,
-          timeSlot: "$slots.timeSlot",
-          menuItem: "$slots.manu",
-          isCancelled: "$slots.isCancelled",
-          voted: { $gt: [{ $size: "$voteData" }, 0] },
-          isServed: { $ifNull: [{ $arrayElemAt: ["$voteData.isServed", 0] }, false] },
-        }
-      },
-
-      // 5. Use FACET to calculate stats and list simultaneously
-      {
-        $facet: {
-          historyList: [{ $sort: { date: -1 } }],
-          summaryStats: [
-            {
-              $group: {
-                _id: null,
-                // Total only counts if NOT cancelled
-                totalMealsThisMonth: {
-                  $sum: { $cond: [{ $eq: ["$isCancelled", false] }, 1, 0] }
-                },
-                // Consumed only counts if isServed is true
-                mealsConsumed: {
-                  $sum: { $cond: [{ $eq: ["$isServed", true] }, 1, 0] }
-                }
-              }
-            }
-          ]
-        }
-      }
-    ]);
-
-    const stats = result[0].summaryStats[0] || { totalMealsThisMonth: 0, mealsConsumed: 0 };
-
-    res.status(200).json({
-      success: true,
-      totalMealsThisMonth: stats.totalMealsThisMonth,
-      mealsConsumed: stats.mealsConsumed,
-      history: result[0].historyList
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: err.message });
   }
 };

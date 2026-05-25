@@ -11,7 +11,10 @@ class MealSubscriptionsPage extends StatefulWidget {
 
 class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
   final api = ApiService();
+  final TextEditingController _searchController = TextEditingController();
+
   List<dynamic> allSubscriptions = [];
+  List<dynamic> _filteredSubscriptions = [];
   List<dynamic> availablePlans = [];
   bool isLoading = true;
   String selectedFilter = 'All';
@@ -20,6 +23,14 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
   void initState() {
     super.initState();
     _fetchData();
+    _searchController.addListener(_onSearchOrFilterChanged);
+  }
+
+  @override
+  void dispose() {
+    _searchController.removeListener(_onSearchOrFilterChanged);
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchData() async {
@@ -33,10 +44,9 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
       if (mounted) {
         setState(() {
           allSubscriptions = results[0] as List<dynamic>;
-
           final plansData = results[1] as Map<String, dynamic>;
           availablePlans = plansData['data'] ?? plansData['packages'] ?? [];
-
+          _onSearchOrFilterChanged();
           isLoading = false;
         });
       }
@@ -44,6 +54,32 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
       debugPrint("Error fetching data: $e");
       if (mounted) setState(() => isLoading = false);
     }
+  }
+
+  void _onSearchOrFilterChanged() {
+    final String query = _searchController.text.toLowerCase().trim();
+
+    setState(() {
+      _filteredSubscriptions = allSubscriptions.where((s) {
+        final bool matchesStatus =
+            selectedFilter == 'All' ||
+            s['status'].toString().toLowerCase() ==
+                selectedFilter.toLowerCase();
+
+        if (!matchesStatus) return false;
+
+        final student = s['studentId'] is Map ? s['studentId'] : {};
+        final String name = (student['name'] ?? "").toString().toLowerCase();
+        final String email = (student['email'] ?? "").toString().toLowerCase();
+        final String regNum = (student['regNum'] ?? "")
+            .toString()
+            .toLowerCase();
+
+        return name.contains(query) ||
+            email.contains(query) ||
+            regNum.contains(query);
+      }).toList();
+    });
   }
 
   // --- EDIT BOTTOM SHEET ---
@@ -79,7 +115,6 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 24),
-
                   const Text(
                     "MEAL PLAN",
                     style: TextStyle(
@@ -104,7 +139,6 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                     },
                   ),
                   const SizedBox(height: 24),
-
                   const Text(
                     "STATUS",
                     style: TextStyle(
@@ -132,7 +166,6 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                     },
                   ),
                   const SizedBox(height: 32),
-
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
@@ -159,7 +192,10 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                                   Navigator.pop(context);
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
-                                      content: Text(res['message']),
+                                      content: Text(
+                                        res['message'] ??
+                                            "Updated successfully",
+                                      ),
                                       backgroundColor: Colors.green,
                                     ),
                                   );
@@ -237,7 +273,7 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
               ),
             ),
             onPressed: () async {
-              Navigator.pop(context); // Close the dialog
+              Navigator.pop(context);
               setState(() => isLoading = true);
               try {
                 final res = await api.deleteSubscriptionByManager(subId);
@@ -271,12 +307,6 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final filteredSubs = allSubscriptions.where((s) {
-      if (selectedFilter == 'All') return true;
-      return s['status'].toString().toLowerCase() ==
-          selectedFilter.toLowerCase();
-    }).toList();
-
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
@@ -290,9 +320,53 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
       ),
       body: Column(
         children: [
+          // Search Input Layout Panel
+          Container(
+            color: Colors.white,
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: "Search by student name, email, or reg num...",
+                hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+                prefixIcon: const Icon(
+                  Icons.search,
+                  color: Colors.green,
+                  size: 20,
+                ),
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(
+                          Icons.clear,
+                          color: Colors.grey,
+                          size: 18,
+                        ),
+                        onPressed: () {
+                          _searchController.clear();
+                          _onSearchOrFilterChanged();
+                        },
+                      )
+                    : null,
+                filled: true,
+                fillColor: Colors.green.withOpacity(0.04),
+                contentPadding: EdgeInsets.zero,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ),
+
+          // Filters Horizontal Layout Row Bar
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            padding: const EdgeInsets.only(
+              left: 16,
+              right: 16,
+              bottom: 8,
+              top: 4,
+            ),
             color: Colors.white,
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -323,22 +397,25 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                 ? const Center(
                     child: CircularProgressIndicator(color: Colors.green),
                   )
-                : filteredSubs.isEmpty
+                : _filteredSubscriptions.isEmpty
                 ? Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
                           Icons.no_meals_outlined,
-                          size: 80,
+                          size: 70,
                           color: Colors.grey.shade300,
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          "No $selectedFilter Subscriptions",
+                          _searchController.text.isNotEmpty
+                              ? "No matches found for search query"
+                              : "No $selectedFilter Subscriptions Listed",
                           style: TextStyle(
                             color: Colors.grey.shade500,
-                            fontSize: 16,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                       ],
@@ -348,10 +425,12 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                     onRefresh: _fetchData,
                     color: Colors.green,
                     child: ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: filteredSubs.length,
+                      padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+                      itemCount: _filteredSubscriptions.length,
                       itemBuilder: (context, index) {
-                        return _buildSubscriptionCard(filteredSubs[index]);
+                        return _buildSubscriptionCard(
+                          _filteredSubscriptions[index],
+                        );
                       },
                     ),
                   ),
@@ -367,12 +446,16 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
       label: Text(label),
       selected: isSelected,
       onSelected: (selected) {
-        if (selected) setState(() => selectedFilter = label);
+        if (selected) {
+          setState(() => selectedFilter = label);
+          _onSearchOrFilterChanged();
+        }
       },
       selectedColor: Colors.green,
       labelStyle: TextStyle(
         color: isSelected ? Colors.white : Colors.black87,
         fontWeight: FontWeight.w600,
+        fontSize: 12,
       ),
       backgroundColor: Colors.grey.shade100,
     );
@@ -387,6 +470,14 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
     final usage = sub['usage'] ?? {};
     final limits = sub['maxLimits'] ?? {};
 
+    // Calculate Individual Card Meal Metrics Context Block
+    int studentAllowed = 0;
+    int studentUsed = 0;
+
+    limits.forEach((key, val) => studentAllowed += (val as num?)?.toInt() ?? 0);
+    usage.forEach((key, val) => studentUsed += (val as num?)?.toInt() ?? 0);
+    int studentLeft = studentAllowed - studentUsed;
+
     Color statusColor = Colors.orange;
     if (status.toLowerCase() == 'active') statusColor = Colors.green;
     if (status.toLowerCase() == 'completed') statusColor = Colors.blue;
@@ -398,20 +489,30 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
     } catch (_) {}
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      elevation: 2,
+      margin: const EdgeInsets.only(top: 12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: Colors.grey.shade200, width: 1),
+      ),
+      elevation: 0,
+      color: Colors.white,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Student Profile Header & Operation Row Actions
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 CircleAvatar(
-                  backgroundColor: Colors.green.shade50,
-                  child: const Icon(Icons.person, color: Colors.green),
+                  radius: 22,
+                  backgroundColor: Colors.green.withOpacity(0.08),
+                  child: const Icon(
+                    Icons.person,
+                    color: Colors.green,
+                    size: 22,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -423,13 +524,24 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
+                          color: Colors.black87,
                         ),
                       ),
+                      const SizedBox(height: 2),
                       Text(
-                        "${student['department'] ?? 'N/A'} • Reg: ${student['regNum'] ?? 'N/A'}",
+                        student['email'] ?? "No email linked",
                         style: TextStyle(
                           color: Colors.grey.shade600,
                           fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        "${student['department'] ?? 'N/A'} • Reg: ${student['regNum'] ?? 'N/A'}",
+                        style: TextStyle(
+                          color: Colors.grey.shade500,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                       const SizedBox(height: 4),
@@ -443,45 +555,54 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                     ],
                   ),
                 ),
-                // ✨ Status Badge & Both Edit/Delete Buttons ✨
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
+                        horizontal: 8,
                         vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        color: statusColor.withOpacity(0.1),
+                        color: statusColor.withOpacity(0.08),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: statusColor),
+                        border: Border.all(color: statusColor.withOpacity(0.4)),
                       ),
                       child: Text(
                         status.toUpperCase(),
                         style: TextStyle(
                           color: statusColor,
+                          fontStyle: FontStyle
+                              .normal,
                           fontWeight: FontWeight.bold,
                           fontSize: 10,
                         ),
                       ),
                     ),
+                    const SizedBox(height: 6),
                     Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         IconButton(
-                          icon: const Icon(Icons.edit_note, color: Colors.grey),
+                          icon: const Icon(
+                            Icons.edit_note,
+                            color: Colors.blueGrey,
+                            size: 22,
+                          ),
                           onPressed: () => _showEditSheet(sub),
                           constraints: const BoxConstraints(),
-                          padding: const EdgeInsets.only(top: 8, right: 8),
+                          padding: const EdgeInsets.all(4),
                         ),
+                        const SizedBox(width: 4),
                         IconButton(
                           icon: const Icon(
                             Icons.delete_outline,
                             color: Colors.redAccent,
+                            size: 20,
                           ),
                           onPressed: () => _showDeleteConfirmation(sub['_id']),
                           constraints: const BoxConstraints(),
-                          padding: const EdgeInsets.only(top: 8),
+                          padding: const EdgeInsets.all(4),
                         ),
                       ],
                     ),
@@ -489,51 +610,101 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                 ),
               ],
             ),
+
             const Padding(
-              padding: EdgeInsets.symmetric(vertical: 8),
-              child: Divider(height: 1),
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Divider(height: 1, thickness: 0.8),
             ),
 
+            // Individual Student Live Counter Metrics Display Summary Box
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+              decoration: BoxDecoration(
+                color: Colors.green.withOpacity(0.03),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.green.withOpacity(0.1)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _buildIndividualCardMetric(
+                    "Total Plans",
+                    "$studentAllowed",
+                    Colors.black87,
+                  ),
+                  Container(width: 1, height: 16, color: Colors.grey.shade200),
+                  _buildIndividualCardMetric(
+                    "Consumed",
+                    "$studentUsed",
+                    Colors.orange.shade800,
+                  ),
+                  Container(width: 1, height: 16, color: Colors.grey.shade200),
+                  _buildIndividualCardMetric(
+                    "Remaining",
+                    "$studentLeft",
+                    Colors.green.shade700,
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            // Plan Sub-Information Metadata Tags
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Row(
                   children: [
                     const Icon(
-                      Icons.calendar_month,
+                      Icons.calendar_month_outlined,
                       size: 16,
                       color: Colors.green,
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     Text(
                       month,
                       style: const TextStyle(
                         fontWeight: FontWeight.w600,
                         color: Colors.green,
+                        fontSize: 13,
                       ),
                     ),
                   ],
                 ),
-                Text(
-                  planType,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    planType,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                      color: Colors.grey.shade800,
+                    ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
 
+            const SizedBox(height: 14),
             const Text(
-              "Consumption Overview:",
+              "Detailed Category Breakdown:",
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 11,
                 fontWeight: FontWeight.bold,
-                color: Colors.grey,
+                color: Colors.black54,
               ),
             ),
             const SizedBox(height: 8),
+
+            // Grid-like Wrapping Categorized Chips View
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -552,6 +723,34 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
     );
   }
 
+  Widget _buildIndividualCardMetric(
+    String label,
+    String value,
+    Color textAccentColor,
+  ) {
+    return Column(
+      children: [
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 15,
+            color: textAccentColor,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 9,
+            color: Colors.grey.shade500,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildUsageChip(String label, dynamic usedVal, dynamic maxVal) {
     int used = (usedVal as num?)?.toInt() ?? 0;
     int max = (maxVal as num?)?.toInt() ?? 0;
@@ -562,10 +761,10 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: isFull ? Colors.red.shade50 : Colors.grey.shade100,
+        color: isFull ? Colors.red.shade50 : Colors.grey.shade50,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: isFull ? Colors.red.shade200 : Colors.grey.shade300,
+          color: isFull ? Colors.red.shade100 : Colors.grey.shade200,
         ),
       ),
       child: Row(
@@ -582,7 +781,7 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
           Text(
             "$used/$max",
             style: TextStyle(
-              fontSize: 12,
+              fontSize: 11,
               color: isFull ? Colors.red : Colors.black87,
               fontWeight: FontWeight.bold,
             ),

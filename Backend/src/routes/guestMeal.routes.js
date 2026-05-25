@@ -18,6 +18,6 @@ router.get("/my-requests", protect, isApproved, getMyGuestMealRequests);
 
 // Manager Routes
 router.get("/all", protect, isApproved, getHostelGuestRequests);
-router.put("/status/:id", protect, isApproved, updateRequestStatus);
+router.put("/update", protect, isApproved, updateRequestStatus);
 
 export default router;

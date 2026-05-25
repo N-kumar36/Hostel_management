@@ -1,19 +1,27 @@
-import GuestMeal from "../models/guestMeal.model.js";
-import Fine from "../models/fine.model.js";
+import mongoose from "mongoose";
+import Fine from '../models/fine.model.js';
 import Meal from "../models/Meal.js";
-import Vote from "../models/Vote.js";
 import MealPrice from "../models/FinePrice.js";
+import User from "../models/User.js"; // Included to resolve missing user instance query definitions
 
-
-
-//  Student creates a guest meal request
+/**
+ * @desc    Student creates a guest meal request directly inside a daily meal slot array
+ * @route   POST /api/guest-meals/request
+ */
 export const requestGuestMeal = async (req, res) => {
   try {
-    const { guestCount, mealDate, mealTime } = req.body;
+    const { guestCount, mealDate, mealTime, guestItemPreference } = req.body;
 
-    // 1. Check for pending fines
+    const studentId = req.user.id || req.user._id;
+    const hostelId = req.user.hostelId;
+
+    if (!guestCount || !mealDate || !mealTime) {
+      return res.status(400).json({ success: false, message: "Missing required booking inputs" });
+    }
+
+    // 1. Check for blocking pending fines
     const pendingFine = await Fine.findOne({
-      studentId: req.user.id,
+      studentId,
       status: 'pending'
     });
 
@@ -24,290 +32,278 @@ export const requestGuestMeal = async (req, res) => {
       });
     }
 
-    // 2. Create the request
-    const newRequest = await GuestMeal.create({
-      studentId: req.user.id,
-      hostelId: req.user.hostelId,
-      guestCount,
-      mealDate,
-      mealTime
-    });
+    // 2. Normalize date string parsing layout gracefully
+    let formattedDateForMeal = mealDate;
+    if (mealDate.includes('-')) {
+      const dateParts = mealDate.split('-');
+      formattedDateForMeal = `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`;
+    }
 
-    res.status(201).json({ success: true, data: newRequest });
+    const slot = mealTime.toLowerCase(); // 'morning' or 'night'
+
+    const mealDoc = await Meal.findOne({ hostelId, date: formattedDateForMeal });
+    if (!mealDoc) {
+      return res.status(404).json({ success: false, message: `Hostel mess has not configured a meal schedule for ${formattedDateForMeal}.` });
+    }
+
+    // Check cutoff lock time constraints logic guards
+    if (mealDoc[slot].isLocked || new Date() > new Date(mealDoc[slot].lockTime)) {
+      return res.status(400).json({ success: false, message: "Bookings have closed for this slot window line." });
+    }
+
+    // 3. Create the embedded sub-document block object structure
+    const newRequest = {
+      _id: new mongoose.Types.ObjectId(),
+      studentId,
+      guestCount: parseInt(guestCount),
+      guestItemPreference: guestItemPreference || "regular",
+      status: "pending",
+      requestedAt: new Date()
+    };
+
+    mealDoc[slot].guestRequests.push(newRequest);
+    await mealDoc.save();
+
+    return res.status(201).json({
+      success: true,
+      message: "Guest meal requested successfully!",
+      data: newRequest
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-
-//  Student fetches only their own guest meal requests
+/**
+ * @desc    Student fetches only their own guest meal requests across all records
+ * @route   GET /api/guest-meals/my-requests
+ */
 export const getMyGuestMealRequests = async (req, res) => {
   try {
-    // We filter by req.user.id which comes from the 'protect' middleware
-    const requests = await GuestMeal.find({ studentId: req.user.id })
-      .sort({ createdAt: -1 }); // Show newest first
+    const studentId = req.user.id || req.user._id;
+    const hostelId = req.user.hostelId;
 
-    res.status(200).json({
+    const rawMeals = await Meal.find({ hostelId }).lean();
+    const studentRequests = [];
+
+    for (const meal of rawMeals) {
+      ['morning', 'night'].forEach(slotKey => {
+        const slot = meal[slotKey];
+        if (slot && slot.guestRequests) {
+          slot.guestRequests.forEach(reqItem => {
+            if (reqItem.studentId.toString() === studentId.toString()) {
+              studentRequests.push({
+                _id: reqItem._id,
+                mealId: meal._id,
+                studentId: reqItem.studentId,
+                guestCount: reqItem.guestCount,
+                guestItemPreference: reqItem.guestItemPreference,
+                status: reqItem.status,
+                requestedAt: reqItem.requestedAt,
+                mealDate: meal.date,
+                mealTime: slotKey,
+                menuItem: slot.manu
+              });
+            }
+          });
+        }
+      });
+    }
+
+    studentRequests.sort((a, b) => new Date(b.requestedAt) - new Date(a.requestedAt));
+
+    return res.status(200).json({
       success: true,
-      count: requests.length,
-      data: requests
+      count: studentRequests.length,
+      data: studentRequests
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch your requests: " + error.message
-    });
+    return res.status(500).json({ success: false, message: "Failed to fetch your requests: " + error.message });
   }
 };
 
-
-//  Student cancels/rejects their own pending request
+/**
+ * @desc    Student cancels/rejects their own pending request directly in the sub-array
+ * @route   PUT /api/guest-meals/cancel
+ */
 export const cancelGuestMealRequest = async (req, res) => {
   try {
-    const requestId = req.params.id;
+    const { mealId, timeSlot, requestId } = req.body;
+    const studentId = req.user.id || req.user._id;
+    const slot = timeSlot.toLowerCase();
 
-    // Find the request and ensure it belongs to the student
-    const request = await GuestMeal.findOne({
-      _id: requestId,
-      studentId: req.user.id
-    });
+    const mealDoc = await Meal.findById(mealId);
+    if (!mealDoc) return res.status(404).json({ success: false, message: "Meal schedule not found." });
 
-    if (!request) {
-      return res.status(404).json({ success: false, message: "Request not found." });
+    const requestItem = mealDoc[slot].guestRequests.id(requestId);
+    if (!requestItem) return res.status(404).json({ success: false, message: "Request item not found inside this slot." });
+
+    if (requestItem.studentId.toString() !== studentId.toString()) {
+      return res.status(403).json({ success: false, message: "Unauthorized operation access rejected." });
     }
 
-    // Only allow cancellation if it's still pending
-    if (request.status !== 'pending') {
-      return res.status(400).json({
-        success: false,
-        message: "Only pending requests can be cancelled."
-      });
+    if (requestItem.status !== 'pending') {
+      return res.status(400).json({ success: false, message: "Only pending requests can be cancelled." });
     }
 
-    // Update status to rejected (or you could delete it using .deleteOne())
-    request.status = 'rejected';
-    await request.save();
+    requestItem.status = 'rejected';
+    await mealDoc.save();
 
-    res.status(200).json({ success: true, message: "Request cancelled successfully." });
+    return res.status(200).json({ success: true, message: "Request cancelled successfully." });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-//  Manager views all requests for their hostel
+/**
+ * @desc    Manager views all requests for their hostel bounds
+ * @route   GET /api/guest-meals/manager/all
+ */
 export const getHostelGuestRequests = async (req, res) => {
   try {
-    const requests = await GuestMeal.find({ hostelId: req.user.hostelId })
-      .populate('studentId', 'name roomNumber')
-      .sort({ createdAt: -1 });
+    const hostelId = req.user.hostelId;
 
-    res.status(200).json({ success: true, data: requests });
+    // Process flat query find string patterns safely
+    const rawMeals = await Meal.find({ hostelId })
+      .populate({ path: 'morning.guestRequests.studentId', select: 'name roomNumber email' })
+      .populate({ path: 'night.guestRequests.studentId', select: 'name roomNumber email' })
+      .lean();
+
+    const allRequests = [];
+
+    for (const meal of rawMeals) {
+      ['morning', 'night'].forEach(slotKey => {
+        const slot = meal[slotKey];
+        if (slot && slot.guestRequests) {
+          slot.guestRequests.forEach(reqItem => {
+            allRequests.push({
+              _id: reqItem._id,
+              mealId: meal._id,
+              studentId: reqItem.studentId,
+              guestCount: reqItem.guestCount,
+              guestItemPreference: reqItem.guestItemPreference,
+              status: reqItem.status,
+              requestedAt: reqItem.requestedAt,
+              mealDate: meal.date,
+              mealTime: slotKey,
+              menuItem: slot.manu
+            });
+          });
+        }
+      });
+    }
+
+    allRequests.sort((a, b) => new Date(b.requestedAt) - new Date(a.requestedAt));
+    return res.status(200).json({ success: true, data: allRequests });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-
-// Manager approves/rejects request
+/**
+ * @desc    Manager approves/rejects an embedded request status flag, computing automated billing logs
+ * @route   PUT /api/guest-meals/manager/update
+ */
 export const updateRequestStatus = async (req, res) => {
   try {
-    const { status } = req.body;
-    const requestId = req.params.id;
+    const { mealId, requestId, status } = req.body;
 
-    console.log("updateRequestStatus:", status, requestId);
+    const rawTimeSlot = req.body.timeSlot || req.body.timeSloat || req.body.mealTime;
 
-    const request = await GuestMeal.findByIdAndUpdate(
-      requestId,
-      { status },
-      { new: true }
-    ).populate("studentId");
-
-    if (!request) {
-      return res.status(404).json({ success: false, message: "Request not found" });
+    if (!mealId || !rawTimeSlot || !requestId || !status) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required tracking parameters: mealId, timeSlot, requestId, and status are required."
+      });
     }
 
+    const slot = rawTimeSlot.toLowerCase(); 
+
+    const mealDoc = await Meal.findById(mealId);
+    if (!mealDoc) return res.status(404).json({ success: false, message: "Master daily meal document not found" });
+
+    if (!mealDoc[slot] || !mealDoc[slot].guestRequests) {
+      return res.status(400).json({ success: false, message: `Invalid or unconfigured time slot: ${slot}` });
+    }
+
+    const request = mealDoc[slot].guestRequests.id(requestId);
+    if (!request) return res.status(404).json({ success: false, message: "Target embedded request record not found" });
+
+    request.status = status;
+
     if (status === "approved") {
-      const dateParts = request.mealDate.split('-');
-      const formattedDateForMeal = `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`;
+      request.approvedAt = new Date();
 
-      const mealDoc = await Meal.findOne({
-        hostelId: request.hostelId,
-        date: formattedDateForMeal
-      });
+      const preference = request.guestItemPreference || "regular";
+      const baseMenu = (mealDoc[slot].manu || "veg").toLowerCase();
+      let billingItemKey = baseMenu; 
 
-      if (!mealDoc) {
-        return res.status(200).json({
-          success: true,
-          message: `Approved, but no routine for ${formattedDateForMeal}`,
-          data: request
-        });
+      if (preference === "halal_chicken" && baseMenu === "chicken") {
+        billingItemKey = "chicken";
+      } else if (preference === "egg_substitute") {
+        billingItemKey = "egg";
+      } else if (preference === "veg_forced") {
+        billingItemKey = "veg";
       }
 
-      const slot = request.mealTime.toLowerCase(); 
-      const menuChoice = mealDoc[slot].manu; // Note: verify if this should be .menu instead of .manu in your schema
-
-      // --- BILLING LOGIC ---
-      const priceTable = await MealPrice.findOne({ hostelId: request.hostelId });
-      
+      // --- ACCOUNTING LEDGER AUTO-BILLING LOGIC ---
+      const priceTable = await MealPrice.findOne({ hostelId: mealDoc.hostelId });
       let unitPrice = 0;
+
       if (priceTable && priceTable.prices) {
-        // FIXED: Access standard nested object using bracket notation and lowercase key
-        const safeMenuChoice = menuChoice ? menuChoice.toLowerCase() : "";
+        const safeMenuChoice = billingItemKey.toLowerCase();
         unitPrice = priceTable.prices[safeMenuChoice] || 0;
       }
 
       const totalAmount = unitPrice * request.guestCount;
 
-      if (!req.user || !req.user._id) {
-        console.error("CRITICAL: req.user._id is missing. Fine cannot be created.");
-      } else if (totalAmount > 0) {
-        try {
-          // Check if a fine already exists for this guest request to prevent double billing
-          const existingFine = await Fine.findOne({ description: { $regex: requestId } });
-          
-          if (!existingFine) {
-            const newFine = await Fine.create({
-              studentId: request.studentId._id,
-              managerId: req.user._id, 
-              hostelId: request.hostelId,
-              title: `Guest Meal - ${menuChoice.toUpperCase()}`,
-              amount: totalAmount,
-              description: `Guest Meal Bill [Ref:${requestId}]: ${request.guestCount} guests x ₹${unitPrice} (${menuChoice})`,
-              status: "pending",
-              date: new Date()
-            });
-            console.log("✅ Fine created successfully:", newFine._id);
-          }
-        } catch (fineError) {
-          console.error("❌ Error creating Fine document:", fineError.message);
-        }
-      }
+      if (totalAmount > 0) {
+        const existingFine = await Fine.findOne({ description: { $regex: requestId } });
 
-      // --- VOTING LOGIC ---
-      
-      // 1. Clear any previous votes for THIS specific request
-      await Vote.deleteMany({ guestMealId: request._id });
+        if (!existingFine) {
+          const finalStudentIdRef = (request.studentId && typeof request.studentId === 'object' && request.studentId._id)
+              ? request.studentId._id
+              : request.studentId;
 
-      const guestVoteEntries = [];
-      for (let i = 1; i <= request.guestCount; i++) {
-        guestVoteEntries.push({
-          userId: request.studentId._id,
-          hostelId: request.hostelId,
-          mealId: mealDoc._id,
-          timeSlot: slot,
-          mealType: menuChoice,
-          isGuest: true,
-          // Added request ID suffix to ensure guestName uniqueness in the index
-          guestName: `Guest ${i} (${request.studentId.name}) - ${requestId.slice(-4)}`,
-          guestMealId: request._id,
-          votedAt: new Date(),
-          isServed: false
-        });
-      }
-      
-      if (guestVoteEntries.length > 0) {
-        try {
-          // ordered: false prevents one duplicate from stopping the whole batch
-          await Vote.insertMany(guestVoteEntries, { ordered: false });
-          console.log(`✅ Created ${request.guestCount} individual guest votes.`);
-        } catch (bulkError) {
-          if (bulkError.code === 11000) {
-            console.warn("⚠️ Duplicate guest votes detected and skipped.");
-          } else {
-            throw bulkError;
-          }
+          const managerIdRef = req.user._id || req.user.id;
+
+          await Fine.create({
+            studentId: finalStudentIdRef,
+            managerId: managerIdRef,
+            hostelId: mealDoc.hostelId,
+            title: `Guest Meal - ${billingItemKey.toUpperCase()}`,
+            amount: totalAmount,
+            description: `Guest Meal Bill [Ref:${requestId}]: ${request.guestCount} guests x ₹${unitPrice} (${billingItemKey})`,
+            status: "pending",
+            date: new Date()
+          });
+          console.log("✅ Guest fine invoice generated successfully.");
         }
       }
     }
 
-    if (status === "rejected") {
-      // Cleanup votes if rejected
-      await Vote.deleteMany({ guestMealId: request._id });
-    }
+    await mealDoc.save();
 
-    res.status(200).json({ success: true, data: request });
+    // ✨ CRITICAL FIX: Re-populate the student documents field reference path before responding back to Flutter!
+    const populatedMealDoc = await Meal.findById(mealId)
+      .populate({ path: `${slot}.guestRequests.studentId`, select: 'name roomNumber email' });
+    
+    const freshlyPopulatedRequest = populatedMealDoc[slot].guestRequests.id(requestId);
+
+    return res.status(200).json({
+      success: true,
+      message: `Request marked as ${status} successfully.`,
+      data: {
+        ...freshlyPopulatedRequest.toObject(),
+        mealId: mealDoc._id,
+        mealTime: slot,
+        mealDate: mealDoc.date,
+        menuItem: mealDoc[slot].manu
+      }
+    });
 
   } catch (error) {
     console.error("Error in updateRequestStatus:", error);
-    res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
-
-
-
-// export const updateRequestStatus = async (req, res) => {
-//   try {
-//     const { status } = req.body;
-//     const requestId = req.params.id;
-
-//     console.log("updateRequestStatus", requestId);
-
-//     const request = await GuestMeal.findByIdAndUpdate(
-//       requestId,
-//       { status },
-//       { new: true }
-//     ).populate("studentId");
-
-//     if (!request) {
-//       return res.status(404).json({ success: false, message: "Request not found" });
-//     }
-
-//     if (status === "approved") {
-//       // 1. Format date: "2026-03-14" -> "14/03/2026"
-//       const dateParts = request.mealDate.split('-');
-//       const formattedDateForMeal = `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`;
-
-//       const mealDoc = await Meal.findOne({
-//         hostelId: request.hostelId,
-//         date: formattedDateForMeal
-//       });
-
-//       if (!mealDoc) {
-//         return res.status(200).json({
-//           success: true,
-//           message: `Approved, but no routine for ${formattedDateForMeal}`,
-//           data: request
-//         });
-//       }
-
-//       const slot = request.mealTime.toLowerCase();
-//       const menuChoice = mealDoc[slot].manu;
-
-//       // 2. Clear any existing guest votes for this request (to prevent duplicates if re-approved)
-//       await Vote.deleteMany({ guestMealId: request._id });
-
-//       // 3. Create individual entries based on guestCount
-//       const guestVoteEntries = [];
-//       for (let i = 1; i <= request.guestCount; i++) {
-//         guestVoteEntries.push({
-//           userId: request.studentId._id,
-//           hostelId: request.hostelId,
-//           mealId: mealDoc._id,
-//           timeSlot: slot,
-//           mealType: menuChoice,
-//           isGuest: true,
-//           // We mark individual names like "Guest 1 (Nitya)", "Guest 2 (Nitya)"
-//           guestName: `Guest ${i} (${request.studentId.name})`, 
-//           guestMealId: request._id,
-//           votedAt: new Date(),
-//           isServed: false
-//         });
-//       }
-
-//       // 4. Batch insert all guest votes into the collection
-//       await Vote.insertMany(guestVoteEntries);
-      
-//       console.log(`Created ${request.guestCount} individual guest votes.`);
-//     }
-
-//     if (status === "rejected") {
-//       // Remove all associated votes if rejected
-//       await Vote.deleteMany({ guestMealId: request._id });
-//     }
-
-//     res.status(200).json({ success: true, data: request });
-//   } catch (error) {
-//     console.error("Error in updateRequestStatus:", error);
-//     res.status(500).json({ success: false, message: error.message });
-//   }
-// };

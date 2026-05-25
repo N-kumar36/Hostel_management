@@ -1,4 +1,4 @@
-import 'package:HostelMess/screens/main_screens/utility/vote_page.dart';
+import 'package:HostelMess/screens/main_screens/utility_screen/vote_page.dart';
 import 'package:HostelMess/services/api_service.dart';
 import 'package:HostelMess/services/dataconnvater.dart';
 import 'package:flutter/material.dart';

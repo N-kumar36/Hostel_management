@@ -9,9 +9,9 @@ import 'package:intl/intl.dart';
 
 class ApiService {
   // final String baseUrl = "https://hostel-management-3e61.onrender.com/api";
-  final String baseUrl = "http://10.22.106.123:5000/api";
+  // final String baseUrl = "http://192.168.0.23:5000/api";
   // final String baseUrl = "http://192.168.18.253:5000/api";
-  // final String baseUrl = "https://hostel-management-rouge-six.vercel.app/api";
+  final String baseUrl = "https://hostel-management-rouge-six.vercel.app/api";
 
   // Helper to get headers with Bearer token
   Future<Map<String, String>> _getHeaders() async {
@@ -113,6 +113,8 @@ class ApiService {
     }
   }
 
+
+
   Future<Map<String, dynamic>?> getProfile() async {
     try {
       final response = await http.get(
@@ -123,12 +125,24 @@ class ApiService {
       if (response.statusCode == 200) {
         final Map<String, dynamic> data = jsonDecode(response.body);
 
-        // Handle common API patterns: data['user'] or just data
+        // Extract profile data block safely
         final Map<String, dynamic> profile = data.containsKey('user')
             ? data['user']
             : data;
 
-        // Update the local cache immediately upon successful fetch
+        // ✨ NEW: Check for the refreshed authentication token from the backend
+        if (data.containsKey('token') && data['token'] != null) {
+          final String refreshedToken = data['token'].toString();
+
+          SharedPreferences prefs = await SharedPreferences.getInstance();
+          // Overwrite your existing authorization token key with the new value
+          await prefs.setString("token", refreshedToken);
+          debugPrint(
+            "✅ Auth token refreshed and saved successfully on startup.",
+          );
+        }
+
+        // Cache the local user details object
         SharedPreferences prefs = await SharedPreferences.getInstance();
         await prefs.setString("User", jsonEncode(profile));
 
@@ -404,30 +418,41 @@ class ApiService {
     required int guestCount,
     required String mealDate,
     required String mealTime,
+    required String
+    guestItemPreference, //  Added parameter to track diet variant selection
   }) async {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/guest-meals/request'),
-        headers: await _getHeaders(), // Ensure this includes your JWT token
+        headers: await _getHeaders(), // Includes your active JWT token
         body: jsonEncode({
           "guestCount": guestCount,
           "mealDate": mealDate,
           "mealTime": mealTime,
+          "guestItemPreference":
+              guestItemPreference, //  Injected token variable straight to your backend route
         }),
       );
 
       final data = jsonDecode(response.body);
 
-      if (response.statusCode == 201) {
-        return {"success": true, "message": "Request sent successfully"};
+      // Status 200 or 201 indicates a successful record write assignment sequence
+      if (response.statusCode == 201 || response.statusCode == 200) {
+        return {
+          "success": true,
+          "message": data['message'] ?? "Request sent successfully",
+        };
       } else if (response.statusCode == 403) {
-        // This is the error from our backend fine check
+        // Blocks requests if there are unresolved financial dues logs checks
         return {
           "success": false,
           "message": data['message'] ?? "Blocked by pending fines",
         };
       } else {
-        return {"success": false, "message": data['message'] ?? "Server error"};
+        return {
+          "success": false,
+          "message": data['message'] ?? "Server validation exception error",
+        };
       }
     } catch (e) {
       return {"success": false, "message": "Connection error: $e"};
@@ -925,8 +950,43 @@ class ApiService {
   }
 
   // ------------------- gguest meal page apis
-  // get guest meal
-  Future<List<dynamic>> getHostelGuestRequests() async {
+
+  /// ✅ FIXED: Aligns route payload signature perfectly with backend structure maps
+  Future<Map<String, dynamic>> updateGuestMealStatus(
+    Map<String, dynamic> payload,
+  ) async {
+    try {
+      final response = await http.put(
+        Uri.parse("$baseUrl/guest-meals/update"),
+        headers: await _getHeaders(),
+        body: json.encode(
+          payload,
+        ), // Sends { "mealId", "timeSlot", "requestId", "status" }
+      );
+
+      final decodedData = json.decode(response.body);
+
+      if (response.statusCode == 200) {
+        return {
+          "success": true,
+          "message": decodedData['message'] ?? "Status updated",
+        };
+      } else {
+        return {
+          "success": false,
+          "message":
+              decodedData['message'] ??
+              "Failed to update status balance variables",
+        };
+      }
+    } catch (e) {
+      debugPrint("Update Guest Status Exception: $e");
+      return {"success": false, "message": "Connection error: $e"};
+    }
+  }
+
+  /// ✅ FIXED: Hits the global manager aggregation path and returns data map safely
+  Future<Map<String, dynamic>> getHostelGuestRequests() async {
     try {
       final response = await http.get(
         Uri.parse("$baseUrl/guest-meals/all"),
@@ -936,37 +996,21 @@ class ApiService {
       final decodedData = json.decode(response.body);
 
       if (response.statusCode == 200) {
-        return decodedData['data'] ?? [];
+        return {"success": true, "data": decodedData['data'] ?? []};
       } else {
-        throw Exception(
-          decodedData["message"] ?? "Failed to fetch guest requests",
-        );
+        return {
+          "success": false,
+          "data": [],
+          "message": decodedData["message"] ?? "Failed to fetch requests",
+        };
       }
     } catch (e) {
       debugPrint("Fetch Guest Requests Error: $e");
-      //  Always return an empty list on error to prevent UI crashes
-      return [];
-    }
-  }
-
-  Future<bool> updateGuestMealStatus(String requestId, String status) async {
-    try {
-      final response = await http.put(
-        Uri.parse("$baseUrl/guest-meals/status/$requestId"),
-        headers: await _getHeaders(),
-        body: json.encode({"status": status}),
-      );
-
-      if (response.statusCode == 200) {
-        return true;
-      } else {
-        final errorData = json.decode(response.body);
-        debugPrint("Update Error: ${errorData['message']}");
-        return false;
-      }
-    } catch (e) {
-      debugPrint("Update Guest Status Exception: $e");
-      return false;
+      return {
+        "success": false,
+        "data": [],
+        "message": "Connection loss or pipeline parsing failure: $e",
+      };
     }
   }
 
@@ -1010,6 +1054,7 @@ class ApiService {
   // 4. Save/Update the persistent Price Plan in the Database
   Future<bool> saveSettingData(Map<String, dynamic> fullConfig) async {
     try {
+      print("Saving Setting Data: $fullConfig");
       final response = await http.post(
         Uri.parse("$baseUrl/managers/sattingData"),
         headers: await _getHeaders(),
@@ -1022,6 +1067,7 @@ class ApiService {
       print("saveMealPriceTable $fullConfig \nresponse $response");
       return response.statusCode == 200;
     } catch (e) {
+      print("Error saving setting data: $e");
       return false;
     }
   }

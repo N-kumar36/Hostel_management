@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:HostelMess/services/api_service.dart'; // Make sure this path is correct
+import 'package:HostelMess/services/api_service.dart';
 
 class StudentPaymentScreen extends StatefulWidget {
   const StudentPaymentScreen({super.key});
@@ -20,23 +20,48 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
   List<dynamic> allPayments = [];
   List<dynamic> filteredPayments = [];
 
-  // Computed getters for the financial summary
+  // Helper method to safely convert values to double
   double _getAmount(dynamic val) {
     if (val == null) return 0.0;
     if (val is num) return val.toDouble();
     return double.tryParse(val.toString()) ?? 0.0;
   }
 
-  double get totalAmount => allPayments.fold(0.0, (sum, p) => sum + _getAmount(p['amount']));
+  // Helper method to identify if a payment's month belongs to a past cycle
+  bool _isPreviousMonth(dynamic payment) {
+    final String paymentMonth = (payment['month'] ?? "").toString().trim();
+    if (paymentMonth.isEmpty) return false;
+
+    // Get the current real-time month name and year string (e.g., "May 2026")
+    final String currentMonthStr = DateFormat('MMMM yyyy').format(DateTime.now());
+
+    // Returns true if the record belongs to a previous month cycle
+    return paymentMonth.toLowerCase() != currentMonthStr.toLowerCase();
+  }
+
+  // ✨ UPDATED GETTERS: Separates Current Month Fines from Previous Month Pending Packages
+  double get currentFinesTotal => allPayments
+      .where((p) => !_isPreviousMonth(p)) // 🚫 Excludes past months
+      .fold(0.0, (sum, p) => sum + _getAmount(p['amount']));
   
-  double get paidAmount => allPayments
-      .where((p) => p['status']?.toString().toLowerCase() == 'success')
+  double get currentFinesPaid => allPayments
+      .where((p) => p['status']?.toString().toLowerCase() == 'success' && !_isPreviousMonth(p))
       .fold(0.0, (sum, p) => sum + _getAmount(p['amount']));
       
-  double get pendingAmount => allPayments
+  double get currentFinesPending => allPayments
       .where((p) {
         final status = p['status']?.toString().toLowerCase();
-        return status == 'pending' || status == 'processing';
+        final isPendingState = status == 'pending' || status == 'processing';
+        return isPendingState && !_isPreviousMonth(p);
+      })
+      .fold(0.0, (sum, p) => sum + _getAmount(p['amount']));
+
+  // ✨ NEW GETTER: Calculates total pending balances carried over from previous months
+  double get previousMonthPendingAmount => allPayments
+      .where((p) {
+        final status = p['status']?.toString().toLowerCase();
+        final isPendingState = status == 'pending' || status == 'processing';
+        return isPendingState && _isPreviousMonth(p); // ✅ Matches past months only
       })
       .fold(0.0, (sum, p) => sum + _getAmount(p['amount']));
 
@@ -49,6 +74,7 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
 
   @override
   void dispose() {
+    _searchController.removeListener(_filterData);
     _searchController.dispose();
     super.dispose();
   }
@@ -71,19 +97,16 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
   }
 
   void _filterData() {
-    String query = _searchController.text.toLowerCase();
+    String query = _searchController.text.toLowerCase().trim();
 
     setState(() {
       filteredPayments = allPayments.where((payment) {
-        // Extract nested student object safely
         final student = payment['studentId'] ?? {};
         final name = (student['name'] ?? "").toString().toLowerCase();
         final status = (payment['status'] ?? "").toString().toLowerCase();
 
-        // Check search query
         final matchesName = name.contains(query);
 
-        // Map UI filters to Database Enums ('success', 'pending', 'processing')
         bool matchesFilter = false;
         if (selectedFilter == "All") {
           matchesFilter = true;
@@ -110,7 +133,6 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
       ),
       child: Column(
         children: [
-          // 1. Drag Handle
           const SizedBox(height: 12),
           Container(
             width: 50,
@@ -121,7 +143,6 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
             ),
           ),
 
-          // 2. Header & Close Button
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
@@ -139,10 +160,9 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
             ),
           ),
 
-          // 3. Financial Summary Cards
+          // ✨ Financial Dashboard Section (Now handles both standard counters + past month debt metrics)
           _buildSummarySection(),
 
-          // 4. Search Bar & Filters
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Column(
@@ -177,175 +197,154 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
 
           const Divider(height: 30),
 
-          // 5. Student List
           Expanded(
             child: isLoading
                 ? Center(child: CircularProgressIndicator(color: themeColor))
                 : filteredPayments.isEmpty
-                ? const Center(
-                    child: Text(
-                      "No records found",
-                      style: TextStyle(color: Colors.grey),
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    itemCount: filteredPayments.length,
-                    itemBuilder: (context, index) {
-                      final payment = filteredPayments[index];
-                      final student = payment['studentId'] ?? {};
+                    ? const Center(child: Text("No records found", style: TextStyle(color: Colors.grey)))
+                    : ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        itemCount: filteredPayments.length,
+                        itemBuilder: (context, index) {
+                          final payment = filteredPayments[index];
+                          final student = payment['studentId'] ?? {};
 
-                      final String name = student['name'] ?? "Unknown";
-                      final String photoUrl = student['photoURL'] ?? "";
-                      final String title = payment['title'] ?? "Payment";
-                      final amount = payment['amount'] ?? 0;
-                      
-                      // Extract screenshot URL safely
-                      final String screenshotUrl = payment['paymentScreenshot'] ?? "";
+                          final String name = student['name'] ?? "Unknown Student";
+                          final String photoUrl = student['photoURL'] ?? "";
+                          final String title = payment['title'] ?? "Payment Invoice";
+                          final amount = payment['amount'] ?? 0;
+                          final String screenshotUrl = payment['paymentScreenshot'] ?? "";
+                          final String recordMonth = payment['month'] ?? "";
+                          
+                          final bool isPrevMonth = _isPreviousMonth(payment);
+                          final String status = (payment['status'] ?? "pending").toString().toLowerCase();
+                          final bool isPaid = status == 'success';
 
-                      final String status = (payment['status'] ?? "pending")
-                          .toString()
-                          .toLowerCase();
-                      final bool isPaid = status == 'success';
-
-                      // Format the ISO Date
-                      String formattedDate = "N/A";
-                      if (payment['date'] != null) {
-                        try {
-                          DateTime date = DateTime.parse(
-                            payment['date'],
-                          ).toLocal();
-                          formattedDate = DateFormat(
-                            'dd MMM yyyy, hh:mm a',
-                          ).format(date);
-                        } catch (e) {
-                          debugPrint("Date parse error: $e");
-                        }
-                      }
-
-                      return Card(
-                        elevation: 0,
-                        margin: const EdgeInsets.only(bottom: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          side: BorderSide(color: Colors.grey.shade200),
-                        ),
-                        child: ListTile(
-                          // ✨ NEW: Handle tap to show screenshot
-                          onTap: () {
-                            if (isPaid) {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => PaymentScreenshotScreen(
-                                    imageUrl: screenshotUrl,
-                                    studentName: name,
-                                  ),
-                                ),
-                              );
-                            } else {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text("This payment is still pending."),
-                                  duration: Duration(seconds: 1),
-                                ),
-                              );
+                          String formattedDate = "N/A";
+                          if (payment['date'] != null) {
+                            try {
+                              DateTime date = DateTime.parse(payment['date']).toLocal();
+                              formattedDate = DateFormat('dd MMM yyyy, hh:mm a').format(date);
+                            } catch (e) {
+                              debugPrint("Date parse error: $e");
                             }
-                          },
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
-                          ),
-                          leading: CircleAvatar(
-                            backgroundColor: isPaid
-                                ? Colors.green.shade50
-                                : Colors.orange.shade50,
-                            radius: 24,
-                            backgroundImage: photoUrl.isNotEmpty
-                                ? NetworkImage(photoUrl)
-                                : null,
-                            child: photoUrl.isEmpty
-                                ? Text(
-                                    name.isNotEmpty
-                                        ? name[0].toUpperCase()
-                                        : "?",
-                                    style: TextStyle(
-                                      color: isPaid
-                                          ? Colors.green
-                                          : Colors.orange.shade800,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 18,
-                                    ),
-                                  )
-                                : null,
-                          ),
-                          title: Text(
-                            name,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15,
+                          }
+
+                          return Card(
+                            elevation: 0,
+                            margin: const EdgeInsets.only(bottom: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              side: BorderSide(color: Colors.grey.shade200),
                             ),
-                          ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const SizedBox(height: 4),
-                              Text(
-                                title, 
-                                style: TextStyle(
-                                  color: Colors.grey.shade800,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
-                                ),
+                            child: ListTile(
+                              onTap: () {
+                                if (screenshotUrl.isNotEmpty) {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => PaymentScreenshotScreen(
+                                        imageUrl: screenshotUrl,
+                                        studentName: name,
+                                      ),
+                                    ),
+                                  );
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text("No payment screenshot uploaded for this record."),
+                                      duration: Duration(seconds: 1),
+                                      behavior: SnackBarBehavior.floating,
+                                    ),
+                                  );
+                                }
+                              },
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              leading: CircleAvatar(
+                                backgroundColor: isPaid ? Colors.green.shade50 : Colors.orange.shade50,
+                                radius: 24,
+                                backgroundImage: photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
+                                child: photoUrl.isEmpty
+                                    ? Text(
+                                        name.isNotEmpty ? name[0].toUpperCase() : "?",
+                                        style: TextStyle(
+                                          color: isPaid ? Colors.green : Colors.orange.shade800,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 18,
+                                        ),
+                                      )
+                                    : null,
                               ),
-                              const SizedBox(height: 2),
-                              Text(
-                                formattedDate, 
-                                style: TextStyle(
-                                  color: Colors.grey.shade500,
-                                  fontSize: 11,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Row(
+                              title: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Icon(
-                                    isPaid ? Icons.check_circle : Icons.pending,
-                                    size: 14,
-                                    color: isPaid
-                                        ? Colors.green
-                                        : Colors.orange.shade800,
+                                  Expanded(
+                                    child: Text(
+                                      name,
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                   ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    isPaid ? "Paid" : "Pending",
-                                    style: TextStyle(
-                                      color: isPaid
-                                          ? Colors.green
-                                          : Colors.orange.shade800,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 12,
+                                  // ✨ UI BADGE: Visually tags previous month logs cleanly from current items
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: isPrevMonth ? Colors.red.withOpacity(0.08) : Colors.purple.withOpacity(0.08),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      isPrevMonth ? (recordMonth.isNotEmpty ? recordMonth.toUpperCase() : "PAST BILL") : "CURRENT MONTH",
+                                      style: TextStyle(
+                                        fontSize: 8.5, 
+                                        fontWeight: FontWeight.bold, 
+                                        color: isPrevMonth ? Colors.red.shade700 : Colors.purple.shade700
+                                      ),
                                     ),
                                   ),
                                 ],
                               ),
-                            ],
-                          ),
-                          trailing: Text(
-                            "₹$amount",
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                              color: Colors.black87,
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    title, 
+                                    style: TextStyle(color: Colors.grey.shade800, fontSize: 12, fontWeight: FontWeight.w600),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    formattedDate, 
+                                    style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        isPaid ? Icons.check_circle : (status == 'processing' ? Icons.hourglass_bottom : Icons.pending),
+                                        size: 14,
+                                        color: isPaid ? Colors.green : Colors.orange.shade800,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        status.toUpperCase(),
+                                        style: TextStyle(
+                                          color: isPaid ? Colors.green : Colors.orange.shade800,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              trailing: Text(
+                                "₹$amount",
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87),
+                              ),
                             ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+                          );
+                        },
+                      ),
           ),
         ],
       ),
@@ -355,13 +354,18 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
   Widget _buildSummarySection() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      child: Row(
+      child: Column(
         children: [
-          _buildSummaryCard("Total", totalAmount, themeColor),
-          const SizedBox(width: 8),
-          _buildSummaryCard("Paid", paidAmount, Colors.green),
-          const SizedBox(width: 8),
-          _buildSummaryCard("Pending", pendingAmount, Colors.orange),
+          Row(
+            children: [
+              _buildSummaryCard("Current Paid", currentFinesPaid, Colors.green),
+              const SizedBox(width: 8),
+              _buildSummaryCard("Current Pending", currentFinesPending, Colors.purple),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // ✨ NEW: Dedicated Full-width card highlighting carried over previous metrics debt balances
+          _buildPreviousMonthSummaryCard("PREV. MONTHS PENDING MESS BALANCE", previousMonthPendingAmount),
         ],
       ),
     );
@@ -372,34 +376,65 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
+          color: color.withOpacity(0.06),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.3)),
+          border: Border.all(color: color.withOpacity(0.2)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               title.toUpperCase(),
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-                color: color.withOpacity(0.8),
-              ),
+              style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: color.withOpacity(0.8), letterSpacing: 0.2),
             ),
             const SizedBox(height: 4),
             Text(
               "₹${amount.toStringAsFixed(0)}", 
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: color),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  // ✨ NEW COMPONENT: Styled alert layout displaying un-cleared past statements balances
+  Widget _buildPreviousMonthSummaryCard(String label, double amount) {
+    final Color cardColor = amount > 0 ? Colors.red : Colors.grey.shade400;
+    
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+      decoration: BoxDecoration(
+        color: amount > 0 ? Colors.red.shade50 : Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cardColor.withOpacity(0.25)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 10, 
+                fontWeight: FontWeight.w900, 
+                color: amount > 0 ? Colors.red.shade900 : Colors.grey.shade700,
+                letterSpacing: 0.3
+              ),
+            ),
+          ),
+          Text(
+            "₹${amount.toStringAsFixed(0)}",
+            style: TextStyle(
+              fontSize: 16, 
+              fontWeight: FontWeight.w900, 
+              color: amount > 0 ? Colors.red.shade700 : Colors.grey.shade600
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -417,9 +452,7 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
         decoration: BoxDecoration(
           color: isSelected ? themeColor : Colors.grey.shade100,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isSelected ? themeColor : Colors.grey.shade300,
-          ),
+          border: Border.all(color: isSelected ? themeColor : Colors.grey.shade300),
         ),
         child: Text(
           label,
@@ -433,6 +466,8 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
     );
   }
 }
+
+// PaymentScreenshotScreen remains unchanged...
 
 // ✨ NEW: Screen to display the payment screenshot
 class PaymentScreenshotScreen extends StatelessWidget {

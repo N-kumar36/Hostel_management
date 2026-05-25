@@ -11,62 +11,75 @@ export const selectPackage = async (req, res) => {
         const hostelId = req.user.hostelId;
 
         const newPlan = await MealPlan.findById(planId);
-        if (!newPlan) return res.status(404).json({ success: false, message: "Plan not found" });
+        if (!newPlan) {
+            return res.status(404).json({ success: false, message: "Requested meal subscription plan package template map not found." });
+        }
 
-        // 1. Fetch ONLY Active or Pending subscriptions for this month.
-        // We do NOT care about 'completed' ones because they are allowed to buy a new one.
+        // 1. Fetch the latest running subscription 
         const activeSub = await StudentSubscription.findOne({
             studentId,
-            month: currentMonth,
+            hostelId,
             status: { $in: ["pending", "active"] }
         });
 
         let finalPrice = newPlan.monthlyPrice;
         let isUpgrade = false;
 
-        // 2. Validate against existing ACTIVE/PENDING plans
+        // 2. Evaluate structural upgrade constraints against active/pending states
         if (activeSub) {
+            const currentSubPrice = activeSub.monthlyPrice || activeSub.amount || 0;
+
+            // Lock block constraint if user has an active "60 veg meals" subscription running
+            if (activeSub.planType === "60 veg meals") {
+                return res.status(400).json({
+                    success: false,
+                    message: "Modifying your running subscription style is restricted. Changing plans while on 60 Veg Meals is not permitted."
+                });
+            }
+
             if (activeSub.planType === "30 meals" && newPlan.planType === "60 meals") {
-                // It's a valid upgrade
-                finalPrice = newPlan.monthlyPrice - activeSub.amount;
+                // Valid Upgrade Path Matrix
+                finalPrice = newPlan.monthlyPrice - currentSubPrice;
                 isUpgrade = true;
             } else if (activeSub.planType === newPlan.planType) {
                 return res.status(400).json({
                     success: false,
-                    message: "You already have this plan active for this month."
+                    message: "You already have this subscription layout tier actively configured on your profile."
                 });
             } else {
                 return res.status(400).json({
                     success: false,
-                    message: "You cannot change your active subscription unless upgrading from 30 to 60 meals."
+                    message: "Modifying your running subscription style is restricted. Only 30 to 60 meals upgrade paths are permitted."
                 });
             }
         }
 
-        // 3. Create or Update
+        // 3. Process Document Pipeline (Mutate active/pending tracking frame vs Create fresh block for completed tiers)
         let subscription;
         if (isUpgrade && activeSub) {
-            // Update the existing active/pending one
+            // UPDATE: Target the running pending/active profile layout block
             subscription = await StudentSubscription.findByIdAndUpdate(
                 activeSub._id,
                 {
                     mealsPlanId: newPlan._id,
                     planType: newPlan.planType,
-                    amount: newPlan.monthlyPrice, // The total value of the new plan
+                    monthlyPrice: newPlan.monthlyPrice,
+                    amount: newPlan.monthlyPrice,
                     maxLimits: newPlan.limits,
-                    status: "pending", // Lock the plan until the upgrade fee is paid
+                    status: "pending", // Reset lock state flag indicators until verification payment passes
+                    ...(currentMonth ? { month: currentMonth } : {})
                 },
                 { new: true }
             );
         } else {
-            // CREATE NEW 
-            // This happens if it's the first plan of the month, OR if their previous plan was 'completed'
+            // CREATE: Executes if no subscription exists OR if the previous matching query layer hit a "completed" status block
             subscription = await StudentSubscription.create({
                 studentId,
                 hostelId,
-                month: currentMonth,
+                month: currentMonth || "Ongoing",
                 mealsPlanId: newPlan._id,
                 planType: newPlan.planType,
+                monthlyPrice: newPlan.monthlyPrice,
                 amount: newPlan.monthlyPrice,
                 maxLimits: newPlan.limits,
                 status: "pending",
@@ -74,32 +87,39 @@ export const selectPackage = async (req, res) => {
             });
         }
 
-        // 4. Generate the Bill
+        // 4. Generate Account Statement Invoice (Fine framework)
+        // ✅ Quiet background lookup without returning 404 block closures if manager is missing
         const manager = await User.findOne({ hostelId, role: "manager" });
-        if (!manager) return res.status(404).json({ success: false, message: "Manager not found" });
+
+        // Fallback safety to prevent validation crashes while fulfilling required database patterns
+        const assignedManagerId = manager ? manager._id : studentId;
 
         const fineBill = await Fine.create({
             studentId,
-            managerId: manager._id,
+            managerId: assignedManagerId, // Pass safe identity parameter pointer directly
             hostelId,
-            title: isUpgrade ? `Plan Upgrade (${currentMonth})` : `Mess Bill - ${newPlan.planType}`,
-            amount: finalPrice, // The actual amount they owe right now
-            description: isUpgrade ? `Upgrade difference for 60 meals.` : `New monthly subscription.`,
+            title: isUpgrade ? `Plan Upgrade Fee` : `Mess Bill - ${newPlan.planType}`,
+            amount: finalPrice,
+            description: isUpgrade
+                ? `Upgrade transition tier price delta calculation transaction execution step balance adjustment invoice.`
+                : `New baseline standard monthly meal package subscription statement invocation profile configuration framework.`,
             isMealPackage: true,
             subscriptionId: subscription._id,
             status: "pending"
         });
 
-        res.status(200).json({
+        return res.status(200).json({
             success: true,
-            message: isUpgrade ? "Upgrade request sent! Pay bill to activate." : "Plan selected! Pay bill to activate.",
+            message: isUpgrade
+                ? "Upgrade request created successfully! Clear checkout invoice payment step options to finalize activation changes."
+                : "Plan selected! Complete checkout verification to confirm active running status profile blocks changes.",
             subscription,
             bill: fineBill
         });
 
     } catch (error) {
-        console.error("Select Package Error:", error);
-        res.status(500).json({ success: false, message: error.message });
+        console.error("Select Package Matrix Runtime Processing Failure Error Stack Log:", error);
+        return res.status(500).json({ success: false, message: "System pipeline compilation handler failure execution context dropped: " + error.message });
     }
 };
 
@@ -223,21 +243,21 @@ export const updateSubscriptionByManager = async (req, res) => {
             // ==========================================
             // ✨ SMART FINE & BILLING LOGIC (NO CREATION/DELETION) ✨
             // ==========================================
-            
+
             // Find the existing fine associated with this subscription
-            const existingFine = await Fine.findOne({ 
-                subscriptionId: subscription._id, 
-                isMealPackage: true 
+            const existingFine = await Fine.findOne({
+                subscriptionId: subscription._id,
+                isMealPackage: true
             });
 
             if (existingFine) {
                 // Safely update ONLY the billing details. 
                 // The paymentScreenshot and status remain completely untouched!
                 existingFine.title = `Mess Bill - ${newPlan.planType}`;
-                existingFine.amount = newPrice; 
+                existingFine.amount = newPrice;
                 existingFine.description = `Manager updated plan from ${oldPlanType} to ${newPlan.planType}.`;
                 existingFine.MealPlanID = newPlan._id;
-                
+
                 await existingFine.save();
             }
             // ==========================================
@@ -257,10 +277,10 @@ export const updateSubscriptionByManager = async (req, res) => {
         // Save the updated subscription
         await subscription.save();
 
-        res.status(200).json({ 
-            success: true, 
-            message: "Subscription and billing successfully updated without losing data!", 
-            data: subscription 
+        res.status(200).json({
+            success: true,
+            message: "Subscription and billing successfully updated without losing data!",
+            data: subscription
         });
 
     } catch (error) {
@@ -280,9 +300,9 @@ export const deleteSubscriptionByManager = async (req, res) => {
         const hostelId = req.user.hostelId;
 
         // 1. Find and delete the subscription, ensuring it belongs to this manager's hostel
-        const deletedSub = await StudentSubscription.findOneAndDelete({ 
-            _id: id, 
-            hostelId: hostelId 
+        const deletedSub = await StudentSubscription.findOneAndDelete({
+            _id: id,
+            hostelId: hostelId
         });
 
         if (!deletedSub) {
@@ -290,13 +310,13 @@ export const deleteSubscriptionByManager = async (req, res) => {
         }
 
         // 2. ✨ NEW: Automatically delete any fines associated with this subscription
-        await Fine.deleteMany({ 
-            subscriptionId: deletedSub._id 
+        await Fine.deleteMany({
+            subscriptionId: deletedSub._id
         });
 
-        res.status(200).json({ 
-            success: true, 
-            message: "Subscription and associated bills successfully deleted." 
+        res.status(200).json({
+            success: true,
+            message: "Subscription and associated bills successfully deleted."
         });
 
     } catch (error) {

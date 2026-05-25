@@ -1,20 +1,23 @@
-// controllers/manager.controller.js
 import ManagerAssignment from "../models/ManagerAssignment.js";
 import User from "../models/User.js";
-import Fine from '../models/fine.model.js';
-import Vote from '../models/Vote.js';
-import FinePrice from '../models/FinePrice.js'
-import UpiDetail from '../models/UpiDetail.js'
-import MealPlan from '../models/MealPlan.js'
-import GuestMeal from "../models/guestMeal.model.js"; // Replace with your exact model import
+import Fine from '../models/fine.model.js'; // Capitalized to match standard references
+import Meal from '../models/Meal.js';  // Replaces separate Vote and GuestMeal collection pointers
+import FinePrice from '../models/FinePrice.js';
+import UpiDetail from '../models/UpiDetail.js';
+import MealPlan from '../models/MealPlan.js';
+import Complain from "../models/Complain.js";
+import StudentSubscription from "../models/StudentSubscription.js"; // Ensure path is correct
+import mongoose from "mongoose";
 
 
-
+/**
+ * @desc    Assign a user as a hostel manager
+ * @route   POST /api/manager/assign
+ */
 export const assignManager = async (req, res) => {
   try {
     const { userId, hostelId, month, permissions } = req.body;
 
-    // 1. Check if this user is already assigned as a manager somewhere
     const existingAssignment = await ManagerAssignment.findOne({ userId, isActive: true });
     if (existingAssignment) {
       return res.status(400).json({
@@ -23,7 +26,6 @@ export const assignManager = async (req, res) => {
       });
     }
 
-    // 2. Create the Assignment
     const assignment = await ManagerAssignment.create({
       userId,
       hostelId,
@@ -36,7 +38,6 @@ export const assignManager = async (req, res) => {
       isActive: true
     });
 
-    // 3. Update the User Role
     const updatedUser = await User.findByIdAndUpdate(
       userId,
       { role: "manager" },
@@ -44,12 +45,11 @@ export const assignManager = async (req, res) => {
     );
 
     if (!updatedUser) {
-      // Cleanup: if user doesn't exist, remove the assignment we just made
       await ManagerAssignment.findByIdAndDelete(assignment._id);
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: "Manager assigned successfully",
       assignment,
@@ -57,16 +57,20 @@ export const assignManager = async (req, res) => {
     });
 
   } catch (err) {
-    // Handle MongoDB Unique Index errors (e.g., if you have a unique index on hostelId + month)
     if (err.code === 11000) {
       return res.status(400).json({
         success: false,
         message: "A manager is already assigned to this hostel for this month."
       });
     }
-    res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
+
+/**
+ * @desc    Get current month's active manager assignment configurations
+ * @route   GET /api/manager/current
+ */
 export const getCurrentManager = async (req, res) => {
   try {
     const month = new Date().toISOString().slice(0, 7);
@@ -76,99 +80,94 @@ export const getCurrentManager = async (req, res) => {
       isActive: true
     }).populate("userId", "name email");
 
-    res.json({ success: true, manager });
+    return res.json({ success: true, manager });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
+
+/**
+ * @desc    Get a list of all students waiting for hostel registration approvals
+ * @route   GET /api/manager/pending-students
+ */
 export const pendingStudent = async (req, res) => {
   try {
-    // 1. Use .find() to get a list, not just one user
-    // 2. req.user.hostelId must be populated by your auth middleware
     const students = await User.find({
       hostelId: req.user.hostelId,
-      pending: "pending" // Querying for the 'pending' status
-    }).select("-password"); // Security: Don't send passwords to the frontend
+      pending: "pending"
+    }).select("-password");
 
-    // 3. Check if we found any students
     if (!students || students.length === 0) {
       return res.status(404).json({ message: "No pending students found for this hostel" });
     }
 
-    // 4. Send the result back to Flutter
-    res.status(200).json(students);
-
+    return res.status(200).json(students);
   } catch (error) {
     console.error("Fail to fetch:", error);
-    res.status(500).json({ message: "Server error while fetching students" });
+    return res.status(500).json({ message: "Server error while fetching students" });
   }
 };
+
+/**
+ * @desc    Approve a pending student's account registration request
+ * @route   PUT /api/manager/approve-student/:id
+ */
 export const pendingApprove = async (req, res) => {
   try {
-    const { id } = req.params; // Get student ID from URL parameters
-
-    console.log("pending api is calld", id);
-
-    // 1. Find the student
+    const { id } = req.params;
     const student = await User.findById(id);
 
-    if (!student) {
-      return res.status(404).json({ message: "Student not found" });
-    }
+    if (!student) return res.status(404).json({ message: "Student not found" });
 
-    // 2. Security Check: Ensure manager is approving a student from their own hostel
     if (student.hostelId.toString() !== req.user.hostelId.toString()) {
       return res.status(403).json({ message: "Unauthorized: This student belongs to another hostel" });
     }
 
-    // 3. Update status to "approve" (matching your Schema enum)
     student.pending = "approve";
     await student.save();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Student approved successfully",
       student
     });
-
   } catch (error) {
     console.error("Approval Error:", error);
-    res.status(500).json({ message: "Server error during approval" });
+    return res.status(500).json({ message: "Server error during approval" });
   }
 };
+
+/**
+ * @desc    Reject and delete a pending registration request entry
+ * @route   DELETE /api/manager/reject-student/:id
+ */
 export const pendingReject = async (req, res) => {
   try {
     const { id } = req.params;
-
-    console.log("Reject api was called", id);
-
-    // 1. Find the student first
     const student = await User.findById(id);
 
-    if (!student) {
-      return res.status(404).json({ message: "Student not found" });
-    }
+    if (!student) return res.status(404).json({ message: "Student not found" });
 
-    // 2. Security Check: Ensure manager only deletes students from their own hostel
     if (student.hostelId.toString() !== req.user.hostelId.toString()) {
-      return res.status(403).json({
-        message: "Unauthorized: This student belongs to another Hostel"
-      });
+      return res.status(403).json({ message: "Unauthorized: This student belongs to another Hostel" });
     }
 
-    // 3. Delete the student (Wait for the database to finish)
     await User.findByIdAndDelete(id);
 
-    res.status(200).json({
-      success: true, // Fixed typo
+    return res.status(200).json({
+      success: true,
       message: "Student registration request rejected and deleted",
     });
-
   } catch (error) {
     console.error("Delete Error:", error);
-    res.status(500).json({ message: "Server error during Student delete" });
+    return res.status(500).json({ message: "Server error during Student delete" });
   }
-}
+};
+
+/**
+ * @desc    Get all active, approved students registered in the manager's hostel
+ * @route   GET /api/manager/students
+ */
 export const getAllHostelStudent = async (req, res) => {
   try {
     const student = await User.find({
@@ -180,146 +179,243 @@ export const getAllHostelStudent = async (req, res) => {
       return res.status(404).json({ message: "Hostel Student not found" });
     }
 
-    res.status(200).json(student);
-
+    return res.status(200).json(student);
   } catch (error) {
     console.error("Fail to fetch Hostel student :", error);
-    res.status(500).json({ success: false, message: "fail to Fetch hostel student", error });
-
+    return res.status(500).json({ success: false, message: "fail to Fetch hostel student", error });
   }
-}
+};
+
+/**
+ * @desc    ✨ FIXED: Gathers summary counts directly from the embedded arrays in the Meal documents
+ * @route   GET /api/manager/student-summary/:studentId
+ */
+
+
 
 export const getStudentSummary = async (req, res) => {
   const { studentId } = req.params;
+  const hostelId = req.user.hostelId;
 
   try {
-    // 1. Total Votes: Count every meal record (Personal + Guest)
-    // In your schema, the existence of a document MEANS they voted.
-    const totalVotes = await Vote.countDocuments({
-      userId: studentId
-    });
+    // 1. Fetch active subscription data directly from database
+    const activeSubscription = await StudentSubscription.findOne({
+      studentId,
+      hostelId,
+      status: "active"
+    }).lean();
 
-    // 2. Total Served: Count meals actually consumed (Personal + Guest)
-    const totalServed = await Vote.countDocuments({
-      userId: studentId,
-      isServed: true
-    });
+    // 2. Read all daily meals configured under this manager's hostel scope
+    const meals = await Meal.find({ hostelId }).lean();
 
-    // 3. Breakdown for UI
-    // Student's own meals (isGuest is false)
-    const studentOwnVotes = await Vote.countDocuments({
-      userId: studentId,
-      isGuest: false
-    });
+    let studentOwnVotes = 0;
+    let totalServed = 0;
+    let totalGuestVotes = 0;
 
-    // Guest meals only
-    const totalGuestVotes = await Vote.countDocuments({
-      userId: studentId,
-      isGuest: true
-    });
+    for (const meal of meals) {
+      ['morning', 'night'].forEach(slotKey => {
+        const slot = meal[slotKey];
+        if (!slot) return;
 
-    // 4. Fine Calculations (Using studentId to match your Fine model)
-    const fines = await Fine.find({ studentId });
+        const personalVote = (slot.studentVotes || []).find(v => v.userId.toString() === studentId);
+        if (personalVote) {
+          studentOwnVotes++;
+          if (personalVote.isServed) totalServed++;
+        }
+
+        const studentGuests = (slot.guestRequests || []).filter(
+          g => g.studentId.toString() === studentId && g.status === "approved"
+        );
+        totalGuestVotes += studentGuests.reduce((sum, g) => sum + g.guestCount, 0);
+      });
+    }
+
+    const totalVotes = studentOwnVotes + totalGuestVotes;
+
+    // 3. Collect billing analytics from fines collection
+    const fines = await Fine.find({ studentId }).lean();
 
     const pendingFines = fines
       .filter(f => f.status === 'pending')
-      .reduce((sum, f) => sum + f.amount, 0);
+      .reduce((sum, f) => sum + (f.amount || 0), 0);
 
-    const paidFines = fines
-      .filter(f => f.status === 'success')
-      .reduce((sum, f) => sum + f.amount, 0);
-
-    res.json({
+    return res.json({
       success: true,
-      totalVotes,       // Sum of studentOwnVotes + totalGuestVotes
+      totalVotes,
       totalServed,
       studentOwnVotes,
       totalGuestVotes,
       pendingFines,
-      paidFines
+      activeSubscription // ✨ CRITICAL: Return the schema keys cleanly back to Flutter!
     });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
 
 
+/**
+ * @desc    Fetch optimized summary action counters for the manager's dashboard panel
+ * @route   GET /api/dashboard/counts
+ */
 export const getDashboardCounts = async (req, res) => {
   try {
-    // Assuming the manager is authenticated and you have their hostelId
-    const hostelId = req.user.hostelId; 
+    const hostelId = req.user.hostelId;
 
-    // Use Promise.all to run both queries concurrently for maximum speed
-    const [pendingStudents, pendingGuests] = await Promise.all([
-      // Count users in this hostel whose status is "pending"
-      User.countDocuments({ hostelId: hostelId, pending: "pending" }),
-      
-      // Count guest meals in this hostel whose status is "pending"
-      // Note: Adjust the { status: "pending" } check to match your exact GuestMeal schema
-      GuestMeal.countDocuments({ hostelId: hostelId, status: "pending" }) 
+    // 1. Count pending students
+    const pendingStudents = await User.countDocuments({
+      hostelId,
+      pending: "pending"
+    });
+
+    // 2. Count pending complaints
+    const pendingComplaints = await Complain.countDocuments({
+      hostelId,
+      status: "Pending"
+    });
+
+    // 3. ✨ NEW: Count unresolved pending fines
+    const pendingFines = await Fine.countDocuments({
+      hostelId,
+      status: "pending" // Matches 'pending' from your schema enum
+    });
+
+    // 4. Native aggregation for pending guest counts
+    const guestCounts = await Meal.aggregate([
+      { $match: { hostelId: new mongoose.Types.ObjectId(hostelId) } },
+      {
+        $project: {
+          totalPending: {
+            $add: [
+              {
+                $size: {
+                  $filter: {
+                    input: { $ifNull: ["$morning.guestRequests", []] },
+                    as: "req",
+                    cond: { $eq: ["$$req.status", "pending"] }
+                  }
+                }
+              },
+              {
+                $size: {
+                  $filter: {
+                    input: { $ifNull: ["$night.guestRequests", []] },
+                    as: "req",
+                    cond: { $eq: ["$$req.status", "pending"] }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalPendingGuests: { $sum: "$totalPending" }
+        }
+      }
     ]);
 
-    res.status(200).json({
+    const pendingGuests = guestCounts.length > 0 ? guestCounts[0].totalPendingGuests : 0;
+
+    console.log("Dashboard Counts:", { pendingStudents, pendingGuests, pendingComplaints, pendingFines });
+
+    return res.status(200).json({
       success: true,
-      pendingStudents: pendingStudents,
-      pendingGuests: pendingGuests
+      pendingStudents,
+      pendingGuests,
+      pendingComplaints,
+      pendingFines // ✨ Sent directly to your frontend panel state
     });
 
   } catch (error) {
-    console.error("Dashboard Counts Error:", error);
-    res.status(500).json({ success: false, message: error.message });
+    console.error("Dashboard Counts Aggregation Error:", error);
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-
-
-// @desc    Save all mess settings (Prices, Plans, UPI)
-// @route   POST /api/settings/sattingData
+/**
+ * @desc    Save all mess configuration metrics concurrently
+ * @route   POST /api/manager/settings
+ */
 export const saveSattingData = async (req, res) => {
   try {
     const { finePrices, plans, upi } = req.body;
     const hostelId = req.user.hostelId;
-    const managerId = req.user._id;
+    const managerId = req.user._id || req.user.id;
 
-    const priceUpdate = FinePrice.findOneAndUpdate({ hostelId }, { prices: finePrices }, { upsert: true });
-    const upiUpdate = UpiDetail.findOneAndUpdate({ hostelId }, { managerId, upiId: upi.upiId, merchantName: upi.merchantName }, { upsert: true });
+    const priceUpdate = FinePrice.findOneAndUpdate(
+      { hostelId },
+      { prices: finePrices },
+      { upsert: true, new: true }
+    );
 
-    // USE LOWERCASE TO MATCH ENUM IN SCHEMA
+    const upiUpdate = UpiDetail.findOneAndUpdate(
+      { hostelId },
+      { managerId, upiId: upi.upiId, merchantName: upi.merchantName },
+      { upsert: true, new: true }
+    );
+
     const basicPlanUpdate = MealPlan.findOneAndUpdate(
       { hostelId, planType: "30 meals" },
       { monthlyPrice: plans.basic.price, limits: plans.basic.limits },
-      { upsert: true }
+      { upsert: true, new: true }
     );
 
     const premiumPlanUpdate = MealPlan.findOneAndUpdate(
       { hostelId, planType: "60 meals" },
       { monthlyPrice: plans.premium.price, limits: plans.premium.limits },
-      { upsert: true }
+      { upsert: true, new: true }
     );
 
-    await Promise.all([priceUpdate, upiUpdate, basicPlanUpdate, premiumPlanUpdate]);
-    res.status(200).json({ success: true, message: "Settings saved" });
+    const vegPlanUpdate = MealPlan.findOneAndUpdate(
+      { hostelId, planType: "60 veg meals" },
+      { monthlyPrice: plans.veg_60.price, limits: plans.veg_60.limits },
+      { upsert: true, new: true }
+    );
+
+    await Promise.all([
+      priceUpdate,
+      upiUpdate,
+      basicPlanUpdate,
+      premiumPlanUpdate,
+      vegPlanUpdate
+    ]);
+
+    return res.status(200).json({ success: true, message: "Settings saved successfully" });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
-// @desc    Get all mess settings
-// @route   GET /api/settings/sattingData
+
+/**
+ * @desc    ✨ FIXED: Returns settings directly at the root data level without double data wrappers
+ * @route   GET /api/manager/settings
+ */
 export const getSattingData = async (req, res) => {
   try {
     const hostelId = req.user.hostelId;
 
     const [finePrices, upi, plans] = await Promise.all([
-      FinePrice.findOne({ hostelId }),
-      UpiDetail.findOne({ hostelId }),
-      MealPlan.find({ hostelId })
+      FinePrice.findOne({ hostelId }).lean(),
+      UpiDetail.findOne({ hostelId }).lean(),
+      MealPlan.find({ hostelId }).lean()
     ]);
 
-    res.status(200).json({
+    // Returns data clean of nested sub-layers to perfectly satisfy your Flutter text input parsing loops
+    return res.status(200).json({
       success: true,
-      data: { finePrices, upi, plans }
+      finePrices,
+      upi,
+      plans
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
+
+
+
+
+

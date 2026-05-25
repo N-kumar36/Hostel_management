@@ -9,10 +9,12 @@ import { selectPackage, getAllSubscriptions, getManagerSubscriptions, updateSubs
 const router = Router();
 
 router.get("/get", protect, getMealPlans);
-
 router.post("/select", protect, selectPackage);
 
+
 router.get("/getAllSubscriptions", protect, getAllSubscriptions);
+
+
 
 router.get("/manager/getAllSubscriptions", protect,  getManagerSubscriptions); // Updated route with permission check
 router.put("/manager/updateSubscription/:id", protect, updateSubscriptionByManager); // Manager can update subscription status
