@@ -346,9 +346,11 @@ export const getVotesByDateAndSlot = async (req, res) => {
 };
 
 
+
+
 /**
- * @desc    Toggle attendance status flag values inside the embedded arrays directly
- * @route   PUT /api/meals/admin/toggle-serve
+ * @desc    Toggle serve execution statuses, compute package balances or fine parameters natively
+ * @route   PUT /api/meals/serve-toggle
  */
 export const toggleServeStatus = async (req, res) => {
   try {
@@ -372,7 +374,7 @@ export const toggleServeStatus = async (req, res) => {
       const walkInVote = {
         userId: studentId,
         itemPreference: "regular",
-        finalAllocatedMenu: slot.manu,
+        finalAllocatedMenu: slot.manu, // Baseline routine type (e.g. 'veg', 'chicken', 'fish')
         isServed: true,
         servedAt: new Date(),
         votedAt: new Date()
@@ -380,10 +382,10 @@ export const toggleServeStatus = async (req, res) => {
 
       slot.studentVotes.push(walkInVote);
       
-      // ✅ FIX: Save immediately so Mongoose generates a valid `_id` for the subdocument
+      // Save immediately so Mongoose generates a valid `_id` for the subdocument
       await meal.save();
       
-      // ✅ FIX: Find the newly created vote item directly from the array to read its auto-generated `_id`
+      // Find the newly created vote item directly from the array to read its auto-generated `_id`
       voteItem = slot.studentVotes.find(v => v.userId.toString() === studentId.toString());
     } else {
       // 2. Student has already voted -> Toggle existing service status state variables
@@ -391,15 +393,25 @@ export const toggleServeStatus = async (req, res) => {
       voteItem.servedAt = voteItem.isServed ? new Date() : null;
       currentMealType = voteItem.finalAllocatedMenu;
       
-      // Save updates for standard existing voters
       await meal.save();
     }
 
     const isNowServed = voteItem.isServed;
 
+    // ✨ CRITICAL TRANSLATION FIX: Map menu variations cleanly to match your StudentSubscription Schema attributes
+    let subscriptionKey = currentMealType.toLowerCase();
+    if (subscriptionKey === "halal_chicken") {
+      subscriptionKey = "chicken"; // Deducts from core chicken allotment quota bounds
+    } else if (subscriptionKey === "egg_substitute") {
+      subscriptionKey = "egg";
+    } else if (subscriptionKey === "veg_forced") {
+      subscriptionKey = "veg";
+    }
+
     // Check student subscription plan profiles
     const subscription = await StudentSubscription.findOne({
       studentId,
+      hostelId: currentHostelId,
       status: { $in: ["active", "completed", "pending"] }
     }).sort({ createdAt: -1 });
 
@@ -407,12 +419,15 @@ export const toggleServeStatus = async (req, res) => {
     let fineGenerated = false;
 
     if (isNowServed) {
-      const currentUsage = subscription ? (subscription.usage[currentMealType] || 0) : 0;
-      const maxAllowed = subscription ? (subscription.maxLimits[currentMealType] || 0) : 0;
+      // Use our safe subscriptionKey parameter map rather than unmapped meal strings
+      const currentUsage = subscription ? (subscription.usage[subscriptionKey] || 0) : 0;
+      const maxAllowed = subscription ? (subscription.maxLimits[subscriptionKey] || 0) : 0;
 
       if (isUnsubscribedGuest || currentUsage >= maxAllowed) {
         const priceList = await FinePrice.findOne({ hostelId: currentHostelId });
-        const fineAmount = priceList ? (priceList.prices[currentMealType] || 50) : 50;
+        
+        // Lookup correct mapping key or fall back gracefully
+        const fineAmount = priceList ? (priceList.prices[subscriptionKey] || 50) : 50;
         const manager = await User.findOne({ hostelId: currentHostelId, role: "manager" });
 
         await Fine.create({
@@ -420,24 +435,24 @@ export const toggleServeStatus = async (req, res) => {
           managerId: manager ? manager._id : studentId,
           hostelId: currentHostelId,
           title: isUnsubscribedGuest 
-            ? `Walk-in Meal Charge - ${currentMealType.toUpperCase()}` 
-            : `Extra Meal Charge - ${currentMealType.toUpperCase()}`,
+            ? `Walk-in Meal Charge - ${subscriptionKey.toUpperCase()}` 
+            : `Extra Meal Charge - ${subscriptionKey.toUpperCase()}`,
           amount: fineAmount,
           description: isUnsubscribedGuest
             ? `Student has no active subscription package. Billed single walk-in rate.`
-            : `Limit for ${currentMealType} was ${maxAllowed}. Charged for exceeding baseline plan quotas.`,
+            : `Limit for ${subscriptionKey} was ${maxAllowed}. Charged for exceeding baseline plan quotas.`,
           status: "pending",
           date: new Date()
         });
         fineGenerated = true;
       }
     } else {
-      // Service undone: Delete fine statement records if pending
+      // Service undone: Delete fine statement records if pending (uses subscriptionKey verification query check)
       await Fine.findOneAndDelete({
         studentId,
         hostelId: currentHostelId,
         status: "pending",
-        title: { $regex: currentMealType, $options: "i" }
+        title: { $regex: new RegExp(subscriptionKey, "i") }
       });
     }
 
@@ -445,10 +460,10 @@ export const toggleServeStatus = async (req, res) => {
     let updatedSubscriptionId = null;
     if (!isUnsubscribedGuest && subscription) {
       const incValue = isNowServed ? 1 : -1;
-      const updateKey = `usage.${currentMealType}`;
+      const updateKey = `usage.${subscriptionKey}`; // Deducts safely using subscription standard parameters
 
       // Prevent negative values when unserving
-      if (!(!isNowServed && (subscription.usage[currentMealType] || 0) <= 0)) {
+      if (!( !isNowServed && (subscription.usage[subscriptionKey] || 0) <= 0 )) {
         const updatedSub = await StudentSubscription.findByIdAndUpdate(
           subscription._id,
           { $inc: { [updateKey]: incValue } },
@@ -458,21 +473,22 @@ export const toggleServeStatus = async (req, res) => {
       }
     }
 
-    if (updatedSubscriptionId) {
+    // Trigger standard lifecycle checks if external completion pipelines are declared
+    if (updatedSubscriptionId && typeof consumptionOverviewCheck === 'function') {
       await consumptionOverviewCheck(updatedSubscriptionId);
     }
 
-    // 🚀 Returns a valid subdocument object _id back to Flutter seamlessly
+    // Returns a valid subdocument object _id back to Flutter seamlessly
     return res.json({
       success: true,
       message: isNowServed
         ? (isUnsubscribedGuest
-          ? `Walk-in ${currentMealType} served. Bill generated!`
-          : (fineGenerated ? `Extra ${currentMealType} served. Fine generated!` : `Marked ${currentMealType} as served`))
-        : `Un-served ${currentMealType}. Usage balance parameters refunded safely.`,
+          ? `Walk-in ${subscriptionKey.toUpperCase()} served. Bill generated!`
+          : (fineGenerated ? `Extra ${subscriptionKey.toUpperCase()} served. Fine generated!` : `Marked ${subscriptionKey.toUpperCase()} as served`))
+        : `Un-served ${subscriptionKey.toUpperCase()}. Usage balance parameters refunded safely.`,
       isServed: voteItem.isServed,
       mealType: currentMealType,
-      voteId: voteItem._id // ✅ Guaranteed to be present now!
+      voteId: voteItem._id
     });
 
   } catch (error) {
@@ -480,6 +496,7 @@ export const toggleServeStatus = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
+
 // --- SUBSCRIPTION EXHAUSTION SYSTEM PARSER HOOK ---
 const consumptionOverviewCheck = async (subscriptionId) => {
   try {
