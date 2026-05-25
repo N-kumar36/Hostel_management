@@ -403,12 +403,15 @@ export const getSattingData = async (req, res) => {
       MealPlan.find({ hostelId }).lean()
     ]);
 
+    console.log("Fetched Settings Data:", { finePrices, upi, plans });
     // Returns data clean of nested sub-layers to perfectly satisfy your Flutter text input parsing loops
     return res.status(200).json({
       success: true,
-      finePrices,
-      upi,
-      plans
+      data: {
+        finePrices,
+        upi,
+        plans
+      }
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
