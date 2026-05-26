@@ -23,11 +23,11 @@ export const sendOTP = async (req, res) => {
       { upsert: true, new: true }
     );
 
-    await sendEmail(email, "KNU Hostel OTP Verification", `
+    await sendEmail(email, "BOYS Hostel OTP Verification", `
   <div style="font-family: Arial, sans-serif; background:#f4f4f4; padding:30px;">
     <div style="max-width:500px; margin:auto; background:#ffffff; padding:25px; border-radius:8px; text-align:center;">
       
-      <h2 style="color:#333;">KNU Boys Hostel</h2>
+      <h2 style="color:#333;">BOYS Boys Hostel</h2>
       <p style="font-size:16px; color:#555;">
         Your One-Time Password (OTP) for verification is:
       </p>
@@ -47,7 +47,7 @@ export const sendOTP = async (req, res) => {
       <hr style="margin:25px 0;" />
 
       <p style="font-size:12px; color:#aaa;">
-        KNU Boys Hostel Management System
+        BOYS Boys Hostel Management System
       </p>
 
     </div>
@@ -305,12 +305,12 @@ export const OtpForgetPass = async (req, res) => {
 
     await sendEmail(
       email,
-      "KNU Hostel OTP Verification",
+      "BOYS Hostel OTP Verification",
       `
   <div style="font-family: Arial, sans-serif; background:#f4f6f8; padding:30px;">
     <div style="max-width:500px; margin:auto; background:#ffffff; padding:25px; border-radius:8px; text-align:center; box-shadow:0 2px 8px rgba(0,0,0,0.1);">
       
-      <h2 style="color:#333;">KNU Hostel</h2>
+      <h2 style="color:#333;">BOYS Hostel</h2>
       
       <p style="font-size:16px; color:#555;">
         You requested to reset your password.
@@ -335,7 +335,7 @@ export const OtpForgetPass = async (req, res) => {
       <hr style="margin:25px 0;" />
 
       <p style="font-size:12px; color:#aaa;">
-        KNU Boys Hostel Management System
+        BOYS Boys Hostel Management System
       </p>
 
     </div>
