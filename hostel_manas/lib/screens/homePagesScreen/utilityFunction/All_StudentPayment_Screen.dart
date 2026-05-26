@@ -15,53 +15,59 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
   final api = ApiService();
 
   bool isLoading = false;
-  String selectedFilter = "All"; // "All", "Paid", "Pending"
+  
+  // Custom filter toggles: "All", "Current", "Previous"
+  String selectedFilter = "All"; 
 
   List<dynamic> allPayments = [];
   List<dynamic> filteredPayments = [];
+  String? activeSubscriptionId;
 
-  // Helper method to safely convert values to double
+  // Helper method to safely convert values to double weights
   double _getAmount(dynamic val) {
     if (val == null) return 0.0;
     if (val is num) return val.toDouble();
     return double.tryParse(val.toString()) ?? 0.0;
   }
 
-  // Helper method to identify if a payment's month belongs to a past cycle
-  bool _isPreviousMonth(dynamic payment) {
-    final String paymentMonth = (payment['month'] ?? "").toString().trim();
-    if (paymentMonth.isEmpty) return false;
-
-    // Get the current real-time month name and year string (e.g., "May 2026")
-    final String currentMonthStr = DateFormat('MMMM yyyy').format(DateTime.now());
-
-    // Returns true if the record belongs to a previous month cycle
-    return paymentMonth.toLowerCase() != currentMonthStr.toLowerCase();
+  // CORE LOGIC: Identifies if a record belongs to an exhausted previous cycle block
+  bool _isPreviousCycle(dynamic payment) {
+    if (payment is Map && payment.containsKey('belongsToCurrentCycle')) {
+      return payment['belongsToCurrentCycle'] == false;
+    }
+    return payment['isMealPackage'] == true;
   }
 
-  // ✨ UPDATED GETTERS: Separates Current Month Fines from Previous Month Pending Packages
-  double get currentFinesTotal => allPayments
-      .where((p) => !_isPreviousMonth(p)) // 🚫 Excludes past months
+  // --- Dynamic Financial Summary Getters ---
+
+  // 1. Grand Total: Total outstanding balance combined across all timelines
+  double get totalOutstandingDebt => allPayments
+      .where((p) {
+        final status = p['status']?.toString().toLowerCase();
+        return status == 'pending' || status == 'processing';
+      })
       .fold(0.0, (sum, p) => sum + _getAmount(p['amount']));
-  
+
+  // 2. Active Month: Total successfully cleared paid balances for the running cycle
   double get currentFinesPaid => allPayments
-      .where((p) => p['status']?.toString().toLowerCase() == 'success' && !_isPreviousMonth(p))
+      .where((p) => p['status']?.toString().toLowerCase() == 'success' && !_isPreviousCycle(p))
       .fold(0.0, (sum, p) => sum + _getAmount(p['amount']));
       
+  // 3. Active Month: Total pending balances left to be collected for the current package sequence
   double get currentFinesPending => allPayments
       .where((p) {
         final status = p['status']?.toString().toLowerCase();
         final isPendingState = status == 'pending' || status == 'processing';
-        return isPendingState && !_isPreviousMonth(p);
+        return isPendingState && !_isPreviousCycle(p);
       })
       .fold(0.0, (sum, p) => sum + _getAmount(p['amount']));
 
-  // ✨ NEW GETTER: Calculates total pending balances carried over from previous months
-  double get previousMonthPendingAmount => allPayments
+  // 4. Past Balance: Total pending debt carried over from old 1 to 60 meal structures
+  double get previousCyclePendingAmount => allPayments
       .where((p) {
         final status = p['status']?.toString().toLowerCase();
         final isPendingState = status == 'pending' || status == 'processing';
-        return isPendingState && _isPreviousMonth(p); // ✅ Matches past months only
+        return isPendingState && _isPreviousCycle(p);
       })
       .fold(0.0, (sum, p) => sum + _getAmount(p['amount']));
 
@@ -86,6 +92,7 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
       if (mounted && res['success'] == true) {
         setState(() {
           allPayments = res['data'] ?? [];
+          activeSubscriptionId = res['activeSubscriptionId']?.toString();
         });
         _filterData();
       }
@@ -96,6 +103,7 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
     }
   }
 
+  // ✨ FIXED FILTER MATRIX: Separates and showcases balances dynamically based on choice
   void _filterData() {
     String query = _searchController.text.toLowerCase().trim();
 
@@ -104,19 +112,22 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
         final student = payment['studentId'] ?? {};
         final name = (student['name'] ?? "").toString().toLowerCase();
         final status = (payment['status'] ?? "").toString().toLowerCase();
+        final bool isPrev = _isPreviousCycle(payment);
 
+        // Name / Registration Search parameter match
         final matchesName = name.contains(query);
 
-        bool matchesFilter = false;
+        // Always show unresolved items, but handle filters gracefully for the paid entries
+        bool matchesCycleFilter = false;
         if (selectedFilter == "All") {
-          matchesFilter = true;
-        } else if (selectedFilter == "Paid") {
-          matchesFilter = status == "success";
-        } else if (selectedFilter == "Pending") {
-          matchesFilter = status == "pending" || status == "processing";
+          matchesCycleFilter = true; // Shows both old and new pending bills
+        } else if (selectedFilter == "Current") {
+          matchesCycleFilter = !isPrev; // Only current cycle
+        } else if (selectedFilter == "Previous") {
+          matchesCycleFilter = isPrev; // Only previous cycle
         }
 
-        return matchesName && matchesFilter;
+        return matchesName && matchesCycleFilter;
       }).toList();
     });
   }
@@ -149,8 +160,8 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text(
-                  "Student Payments",
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  "Mess Accounts & Dues Ledger",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 0.1),
                 ),
                 IconButton(
                   icon: const Icon(Icons.close, color: Colors.grey),
@@ -160,7 +171,7 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
             ),
           ),
 
-          // ✨ Financial Dashboard Section (Now handles both standard counters + past month debt metrics)
+          // Upper summary section metric cards
           _buildSummarySection(),
 
           Padding(
@@ -182,28 +193,35 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
+                
+                // ✨ UPDATED ADVANCED CHIP FILTER BAR: Lets managers swap scopes easily
                 Row(
                   children: [
-                    _buildFilterChip("All"),
-                    const SizedBox(width: 8),
-                    _buildFilterChip("Paid"),
-                    const SizedBox(width: 8),
-                    _buildFilterChip("Pending"),
+                    _buildFilterChip("All Dues", "All"),
+                    const SizedBox(width: 6),
+                    _buildFilterChip("Current Cycle", "Current"),
+                    const SizedBox(width: 6),
+                    _buildFilterChip("Previous Cycle", "Previous"),
                   ],
                 ),
               ],
             ),
           ),
 
-          const Divider(height: 30),
+          const Divider(height: 24),
 
           Expanded(
             child: isLoading
                 ? Center(child: CircularProgressIndicator(color: themeColor))
                 : filteredPayments.isEmpty
-                    ? const Center(child: Text("No records found", style: TextStyle(color: Colors.grey)))
+                    ? const Center(
+                        child: Text(
+                          "No payment entries recorded matching this cycle target.", 
+                          style: TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.w500)
+                        ),
+                      )
                     : ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                         itemCount: filteredPayments.length,
                         itemBuilder: (context, index) {
                           final payment = filteredPayments[index];
@@ -215,8 +233,9 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
                           final amount = payment['amount'] ?? 0;
                           final String screenshotUrl = payment['paymentScreenshot'] ?? "";
                           final String recordMonth = payment['month'] ?? "";
+                          final String cycleDetails = payment['cycleDescription'] ?? "";
                           
-                          final bool isPrevMonth = _isPreviousMonth(payment);
+                          final bool isPrevCycle = _isPreviousCycle(payment);
                           final String status = (payment['status'] ?? "pending").toString().toLowerCase();
                           final bool isPaid = status == 'success';
 
@@ -230,13 +249,29 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
                             }
                           }
 
+                          // Component styling mapping matrix
+                          Color cardBackground;
+                          BorderSide cardBorder;
+                          
+                          if (isPaid) {
+                            cardBackground = Colors.green.withOpacity(0.01);
+                            cardBorder = BorderSide(color: Colors.green.withOpacity(0.12));
+                          } else if (isPrevCycle) {
+                            cardBackground = Colors.red.withOpacity(0.03);
+                            cardBorder = BorderSide(color: Colors.red.withOpacity(0.2), width: 1.2);
+                          } else {
+                            cardBackground = Colors.white;
+                            cardBorder = BorderSide(color: Colors.purple.withOpacity(0.15));
+                          }
+
                           return Card(
                             elevation: 0,
                             margin: const EdgeInsets.only(bottom: 12),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
-                              side: BorderSide(color: Colors.grey.shade200),
+                              side: cardBorder,
                             ),
+                            color: cardBackground,
                             child: ListTile(
                               onTap: () {
                                 if (screenshotUrl.isNotEmpty) {
@@ -252,23 +287,27 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
                                 } else {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
-                                      content: Text("No payment screenshot uploaded for this record."),
+                                      content: Text("No verification screenshot uploaded for this bill yet."),
                                       duration: Duration(seconds: 1),
                                       behavior: SnackBarBehavior.floating,
                                     ),
                                   );
                                 }
                               },
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                               leading: CircleAvatar(
-                                backgroundColor: isPaid ? Colors.green.shade50 : Colors.orange.shade50,
+                                backgroundColor: isPaid 
+                                    ? Colors.green.shade50 
+                                    : (isPrevCycle ? Colors.red.shade50 : Colors.orange.shade50),
                                 radius: 24,
                                 backgroundImage: photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
                                 child: photoUrl.isEmpty
                                     ? Text(
                                         name.isNotEmpty ? name[0].toUpperCase() : "?",
                                         style: TextStyle(
-                                          color: isPaid ? Colors.green : Colors.orange.shade800,
+                                          color: isPaid 
+                                              ? Colors.green 
+                                              : (isPrevCycle ? Colors.red.shade800 : Colors.orange.shade800),
                                           fontWeight: FontWeight.bold,
                                           fontSize: 18,
                                         ),
@@ -281,23 +320,28 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
                                   Expanded(
                                     child: Text(
                                       name,
-                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold, 
+                                        fontSize: 14.5,
+                                        color: isPrevCycle && !isPaid ? Colors.red.shade900 : Colors.black87
+                                      ),
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
-                                  // ✨ UI BADGE: Visually tags previous month logs cleanly from current items
                                   Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                     decoration: BoxDecoration(
-                                      color: isPrevMonth ? Colors.red.withOpacity(0.08) : Colors.purple.withOpacity(0.08),
+                                      color: isPrevCycle ? Colors.red.withOpacity(0.08) : Colors.purple.withOpacity(0.08),
                                       borderRadius: BorderRadius.circular(6),
                                     ),
                                     child: Text(
-                                      isPrevMonth ? (recordMonth.isNotEmpty ? recordMonth.toUpperCase() : "PAST BILL") : "CURRENT MONTH",
+                                      isPrevCycle 
+                                          ? (recordMonth.isNotEmpty ? "${recordMonth.toUpperCase()} BLOCK" : "PAST BLOCK")
+                                          : "ACTIVE BLOCK",
                                       style: TextStyle(
-                                        fontSize: 8.5, 
-                                        fontWeight: FontWeight.bold, 
-                                        color: isPrevMonth ? Colors.red.shade700 : Colors.purple.shade700
+                                        fontSize: 8, 
+                                        fontWeight: FontWeight.w900, 
+                                        color: isPrevCycle ? Colors.red.shade700 : Colors.purple.shade700,
                                       ),
                                     ),
                                   ),
@@ -306,31 +350,38 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
                               subtitle: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const SizedBox(height: 4),
+                                  const SizedBox(height: 3),
                                   Text(
                                     title, 
-                                    style: TextStyle(color: Colors.grey.shade800, fontSize: 12, fontWeight: FontWeight.w600),
+                                    style: TextStyle(color: Colors.grey.shade800, fontSize: 12, fontWeight: FontWeight.bold),
                                   ),
+                                  if (cycleDetails.isNotEmpty) ...[
+                                    const SizedBox(height: 1),
+                                    Text(
+                                      cycleDetails,
+                                      style: TextStyle(color: isPrevCycle ? Colors.red.shade600 : Colors.teal.shade700, fontSize: 10, fontWeight: FontWeight.bold),
+                                    ),
+                                  ],
                                   const SizedBox(height: 2),
                                   Text(
                                     formattedDate, 
                                     style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
                                   ),
-                                  const SizedBox(height: 6),
+                                  const SizedBox(height: 4),
                                   Row(
                                     children: [
                                       Icon(
-                                        isPaid ? Icons.check_circle : (status == 'processing' ? Icons.hourglass_bottom : Icons.pending),
-                                        size: 14,
-                                        color: isPaid ? Colors.green : Colors.orange.shade800,
+                                        isPaid ? Icons.check_circle_rounded : (status == 'processing' ? Icons.hourglass_bottom : Icons.pending_rounded),
+                                        size: 13,
+                                        color: isPaid ? Colors.green : (isPrevCycle ? Colors.red.shade700 : Colors.orange.shade800),
                                       ),
                                       const SizedBox(width: 4),
                                       Text(
                                         status.toUpperCase(),
                                         style: TextStyle(
-                                          color: isPaid ? Colors.green : Colors.orange.shade800,
+                                          color: isPaid ? Colors.green : (isPrevCycle ? Colors.red.shade800 : Colors.orange.shade800),
                                           fontWeight: FontWeight.bold,
-                                          fontSize: 11,
+                                          fontSize: 10.5,
                                         ),
                                       ),
                                     ],
@@ -339,7 +390,11 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
                               ),
                               trailing: Text(
                                 "₹$amount",
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w900, 
+                                  fontSize: 15, 
+                                  color: isPrevCycle && !isPaid ? Colors.red.shade700 : Colors.black87
+                                ),
                               ),
                             ),
                           );
@@ -353,19 +408,20 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
 
   Widget _buildSummarySection() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
       child: Column(
         children: [
           Row(
             children: [
-              _buildSummaryCard("Current Paid", currentFinesPaid, Colors.green),
+              _buildSummaryCard("Current Cycle Paid", currentFinesPaid, Colors.green),
               const SizedBox(width: 8),
-              _buildSummaryCard("Current Pending", currentFinesPending, Colors.purple),
+              _buildSummaryCard("Current Cycle Due", currentFinesPending, Colors.purple),
             ],
           ),
           const SizedBox(height: 8),
-          // ✨ NEW: Dedicated Full-width card highlighting carried over previous metrics debt balances
-          _buildPreviousMonthSummaryCard("PREV. MONTHS PENDING MESS BALANCE", previousMonthPendingAmount),
+          _buildPreviousMonthSummaryCard("PREVIOUS EXHAUSTED PACKAGES OUTSTANDING DUE", previousCyclePendingAmount),
+          const SizedBox(height: 8),
+          _buildGlobalTotalSummaryCard("COMBINED TOTAL OUTSTANDING BALANCE", totalOutstandingDebt),
         ],
       ),
     );
@@ -374,9 +430,9 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
   Widget _buildSummaryCard(String title, double amount, Color color) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.06),
+          color: color.withOpacity(0.05),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: color.withOpacity(0.2)),
         ),
@@ -385,12 +441,12 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
           children: [
             Text(
               title.toUpperCase(),
-              style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: color.withOpacity(0.8), letterSpacing: 0.2),
+              style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: color.withOpacity(0.8), letterSpacing: 0.1),
             ),
             const SizedBox(height: 4),
             Text(
               "₹${amount.toStringAsFixed(0)}", 
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: color),
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: color),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -400,17 +456,16 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
     );
   }
 
-  // ✨ NEW COMPONENT: Styled alert layout displaying un-cleared past statements balances
   Widget _buildPreviousMonthSummaryCard(String label, double amount) {
     final Color cardColor = amount > 0 ? Colors.red : Colors.grey.shade400;
     
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
       decoration: BoxDecoration(
         color: amount > 0 ? Colors.red.shade50 : Colors.grey.shade50,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: cardColor.withOpacity(0.25)),
+        border: Border.all(color: cardColor.withOpacity(0.2)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -418,37 +473,64 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
           Expanded(
             child: Text(
               label,
-              style: TextStyle(
-                fontSize: 10, 
-                fontWeight: FontWeight.w900, 
-                color: amount > 0 ? Colors.red.shade900 : Colors.grey.shade700,
-                letterSpacing: 0.3
-              ),
+              style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: amount > 0 ? Colors.red.shade900 : Colors.grey.shade700),
             ),
           ),
           Text(
             "₹${amount.toStringAsFixed(0)}",
-            style: TextStyle(
-              fontSize: 16, 
-              fontWeight: FontWeight.w900, 
-              color: amount > 0 ? Colors.red.shade700 : Colors.grey.shade600
-            ),
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: amount > 0 ? Colors.red.shade700 : Colors.grey.shade600),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildFilterChip(String label) {
-    bool isSelected = selectedFilter == label;
+  Widget _buildGlobalTotalSummaryCard(String label, double amount) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+      decoration: BoxDecoration(
+        color: amount > 0 ? Colors.amber.shade50.withOpacity(0.4) : Colors.teal.shade50.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: amount > 0 ? Colors.amber.shade400 : Colors.teal.shade400, width: 1.5),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Row(
+              children: [
+                Icon(Icons.account_balance_wallet_rounded, size: 16, color: amount > 0 ? Colors.amber.shade900 : Colors.teal.shade800),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: amount > 0 ? Colors.amber.shade900 : Colors.teal.shade900, letterSpacing: 0.1),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            "₹${amount.toStringAsFixed(0)}",
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: amount > 0 ? Colors.amber.shade900 : Colors.teal.shade800),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterChip(String label, String filterKey) {
+    bool isSelected = selectedFilter == filterKey;
+    
     return InkWell(
       onTap: () {
-        setState(() => selectedFilter = label);
+        setState(() => selectedFilter = filterKey);
         _filterData();
       },
       borderRadius: BorderRadius.circular(20),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
           color: isSelected ? themeColor : Colors.grey.shade100,
           borderRadius: BorderRadius.circular(20),
@@ -459,7 +541,7 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
           style: TextStyle(
             color: isSelected ? Colors.white : Colors.grey.shade700,
             fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-            fontSize: 13,
+            fontSize: 12,
           ),
         ),
       ),
@@ -468,8 +550,6 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
 }
 
 // PaymentScreenshotScreen remains unchanged...
-
-// ✨ NEW: Screen to display the payment screenshot
 class PaymentScreenshotScreen extends StatelessWidget {
   final String imageUrl;
   final String studentName;
@@ -506,8 +586,8 @@ class PaymentScreenshotScreen extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(Icons.broken_image, size: 64, color: Colors.grey),
-                      SizedBox(height: 16),
-                      Text("Failed to load image", style: TextStyle(color: Colors.grey)),
+                      const SizedBox(height: 16),
+                      Text("Failed to load image file", style: TextStyle(color: Colors.grey)),
                     ],
                   ),
                 ),
@@ -516,7 +596,7 @@ class PaymentScreenshotScreen extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(Icons.receipt_long, size: 80, color: Colors.grey),
-                  SizedBox(height: 16),
+                  const SizedBox(height: 16),
                   Text(
                     "No screenshot uploaded for this payment.",
                     style: TextStyle(color: Colors.grey, fontSize: 16),

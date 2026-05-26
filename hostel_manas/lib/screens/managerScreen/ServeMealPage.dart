@@ -46,7 +46,7 @@ class _ServeMealPageState extends State<ServeMealPage> {
   }
 
   void _onSearchChanged() {
-    String query = _searchController.text.toLowerCase();
+    String query = _searchController.text.toLowerCase().trim();
     setState(() {
       _filteredVotes = _allVotes.where((vote) {
         final name = (vote['studentName'] ?? "").toString().toLowerCase();
@@ -109,7 +109,6 @@ class _ServeMealPageState extends State<ServeMealPage> {
     final String? vId = studentData['voteId']?.toString();
     final String sId = studentData['studentId']?.toString() ?? "";
 
-    // ✨ FIX: If voteId is missing, fall back to studentId so processingId tracking works perfectly
     final String executionTrackingId = (vId != null && vId.isNotEmpty)
         ? vId
         : sId;
@@ -124,11 +123,8 @@ class _ServeMealPageState extends State<ServeMealPage> {
     try {
       String formattedDate = DateFormat('dd/MM/yyyy').format(selectedDate);
 
-      // Trigger the api call network channel passed parameters directly
       final res = await api.updateServeStatus(
-        (vId != null && vId.isNotEmpty)
-            ? vId
-            : "", // Pass clear blank string if unvoted walk-in
+        (vId != null && vId.isNotEmpty) ? vId : "",
         sId,
         formattedDate,
         selectedTime,
@@ -141,7 +137,6 @@ class _ServeMealPageState extends State<ServeMealPage> {
           final String? returnedVoteId = res['voteId']?.toString();
 
           setState(() {
-            // Find the updated row index using matching parameter blocks keys
             final masterIndex = _allVotes.indexWhere(
               (v) =>
                   (v['voteId']?.toString() == executionTrackingId &&
@@ -152,16 +147,14 @@ class _ServeMealPageState extends State<ServeMealPage> {
             if (masterIndex != -1) {
               _allVotes[masterIndex]['isServed'] = serverStatus;
 
-              // ✨ CRITICAL: Save the backend's generated voteId on the frontend
               if (returnedVoteId != null) {
                 _allVotes[masterIndex]['voteId'] = returnedVoteId;
-                _allVotes[masterIndex]['choice'] =
-                    resolvedMealType; // Changes local value tag text from empty string to routine menu item
+                _allVotes[masterIndex]['choice'] = resolvedMealType;
               }
             }
 
             _sortAndFilterList();
-            processingId = null; // Clear loader tracking lock safely
+            processingId = null;
           });
 
           _showSnackBar(
@@ -327,7 +320,6 @@ class _ServeMealPageState extends State<ServeMealPage> {
             ],
           ),
 
-          // ✨ NEW: Contextual Main Menu Banner placed right below the time dropdown selection
           if (!isLoading) ...[
             const SizedBox(height: 10),
             Container(
@@ -469,7 +461,6 @@ class _ServeMealPageState extends State<ServeMealPage> {
         final bool hasVoted = choiceStr.isNotEmpty;
         final bool isGuest = vote['isGuest'] == true;
 
-        // Determine descriptive visual elements context markers dynamically
         final String currentChoice = hasVoted ? choiceStr : baseRoutineMenu;
         final Color choiceColor = isGuest
             ? Colors.orange.shade800
@@ -477,10 +468,10 @@ class _ServeMealPageState extends State<ServeMealPage> {
 
         return Card(
           margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          elevation: served ? 0 : 2,
+          elevation: served ? 0 : 1.5,
           color: isGuest
               ? Colors.orange.shade50.withOpacity(0.3)
-              : (served ? Colors.green.withOpacity(0.05) : Colors.white),
+              : (served ? Colors.green.withOpacity(0.04) : Colors.white),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
             side: BorderSide(
@@ -518,25 +509,56 @@ class _ServeMealPageState extends State<ServeMealPage> {
                 color: served ? Colors.grey : Colors.black87,
               ),
             ),
-            subtitle: Row(
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  _getChoiceIcon(currentChoice),
-                  color: served ? Colors.grey : choiceColor,
-                  size: 14,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  isGuest
-                      ? "GUEST CHOICE: ${choiceStr.toUpperCase()}"
-                      : (hasVoted
-                            ? "CHOICE: ${choiceStr.toUpperCase()}"
-                            : "WALK-IN (${baseRoutineMenu.toUpperCase()})"),
-                  style: TextStyle(
-                    color: served ? Colors.grey : choiceColor,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
+                const SizedBox(height: 2),
+                // ✨ NEW STATUS METADATA: Explicitly distinguishes who has voted vs walk-in counters
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
                   ),
+                  decoration: BoxDecoration(
+                    color: hasVoted
+                        ? Colors.blue.withOpacity(0.08)
+                        : Colors.grey.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    hasVoted ? "PRE-VOTED AT SYSTEM" : "WALK-IN ENTRANT",
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                      color: hasVoted
+                          ? Colors.blue.shade700
+                          : Colors.grey.shade700,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Icon(
+                      _getChoiceIcon(currentChoice),
+                      color: served ? Colors.grey : choiceColor,
+                      size: 13,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      isGuest
+                          ? "GUEST CHOICE: ${choiceStr.toUpperCase()}"
+                          : (hasVoted
+                                ? "CHOICE: ${choiceStr.toUpperCase()}"
+                                // ✨ FIXED VISUAL LABEL: Remapped placeholder parameter text label
+                                : "NOT VOTED (WALK-IN: ${baseRoutineMenu.toUpperCase()})"),
+                      style: TextStyle(
+                        color: served ? Colors.grey : choiceColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
