@@ -51,71 +51,8 @@ export const updateProfilePicture = async (req, res) => {
 
 
 
-
-
 /**
- * 📊 INTERNAL UTILITY: Retrieves the exact absolute sequence number of a target meal 
- * in the system's timeline, filtering out completely cancelled entries.
- */
-const getMealSequenceNumber = async (hostelId, targetDateStr, targetSlot) => {
-  const allMeals = await Meal.find({ hostelId });
-
-  // Sort meals chronologically by true calendar dates
-  allMeals.sort((a, b) => {
-    const [dA, mA, yA] = a.date.split("/").map(Number);
-    const [dB, mB, yB] = b.date.split("/").map(Number);
-    return new Date(yA, mA - 1, dA) - new Date(yB, mB - 1, dB);
-  });
-
-  let activeCounter = 0;
-  for (let meal of allMeals) {
-    if (!meal.morning.isCancelled) {
-      activeCounter++;
-      if (meal.date === targetDateStr && targetSlot === "morning") return activeCounter;
-    }
-    if (!meal.night.isCancelled) {
-      activeCounter++;
-      if (meal.date === targetDateStr && targetSlot === "night") return activeCounter;
-    }
-  }
-  return activeCounter;
-};
-
-/**
- * 📊 INTERNAL UTILITY: Finds the calendar Date object corresponding to an absolute meal sequence number.
- */
-const getMealDateBySequenceNumber = async (hostelId, targetSeqNum) => {
-  const allMeals = await Meal.find({ hostelId });
-
-  allMeals.sort((a, b) => {
-    const [dA, mA, yA] = a.date.split("/").map(Number);
-    const [dB, mB, yB] = b.date.split("/").map(Number);
-    return new Date(yA, mA - 1, dA) - new Date(yB, mB - 1, dB);
-  });
-
-  let activeCounter = 0;
-  for (let meal of allMeals) {
-    if (!meal.morning.isCancelled) {
-      activeCounter++;
-      if (activeCounter === targetSeqNum) {
-        const [d, m, y] = meal.date.split("/").map(Number);
-        return new Date(y, m - 1, d, 0, 0, 0);
-      }
-    }
-    if (!meal.night.isCancelled) {
-      activeCounter++;
-      if (activeCounter === targetSeqNum) {
-        const [d, m, y] = meal.date.split("/").map(Number);
-        return new Date(y, m - 1, d, 23, 59, 59);
-      }
-    }
-  }
-  return null;
-};
-
-/**
- * @desc    Get payment history, dynamically resolving if a fine falls within the 
- *          explicit duration window of Meal #1 to Meal #60 for the active package.
+ * @desc    Get fast payment history filtering out past success fines
  * @route   GET /api/user/all-payment-history
  */
 export const getStudentPaymentHistory = async (req, res) => {
@@ -126,38 +63,83 @@ export const getStudentPaymentHistory = async (req, res) => {
       return res.status(400).json({ success: false, message: "Hostel ID context reference is missing." });
     }
 
+    // ⚡ OPTIMIZATION 1: Load all meals into memory once and sort chronologically
+    const allMeals = await Meal.find({ hostelId }).lean();
+    allMeals.sort((a, b) => {
+      const [dA, mA, yA] = a.date.split("/").map(Number);
+      const [dB, mB, yB] = b.date.split("/").map(Number);
+      return new Date(yA, mA - 1, dA) - new Date(yB, mB - 1, dB);
+    });
+
+    // ⚡ OPTIMIZATION 2: Build synchronous indexing maps for instant query lookups
+    const mapByDate = {}; 
+    const mapBySeq = {};  
+    let activeCounter = 0;
+
+    for (let meal of allMeals) {
+      const [d, m, y] = meal.date.split("/").map(Number);
+      const normalizedDateStr = `${d}/${m}/${y}`;
+
+      if (!meal.morning?.isCancelled) {
+        activeCounter++;
+        mapByDate[`${normalizedDateStr}_morning`] = activeCounter;
+        mapBySeq[activeCounter] = new Date(y, m - 1, d, 0, 0, 0);
+      }
+      if (!meal.night?.isCancelled) {
+        activeCounter++;
+        mapByDate[`${normalizedDateStr}_night`] = activeCounter;
+        mapBySeq[activeCounter] = new Date(y, m - 1, d, 23, 59, 59);
+      }
+    }
+
     // 1. Fetch all logged fines matching this hostel context
     const paymentHistory = await Fine.find({ hostelId })
       .populate("studentId", "name email photoURL regNum")
       .populate("MealPlanID", "name price")
-      .sort({ date: -1 });
+      .sort({ date: -1 })
+      .lean();
 
-    // 2. Map and augment the payment history records list asynchronously
-    const processedData = await Promise.all(paymentHistory.map(async (fine) => {
-      const fineDoc = fine.toObject();
+    // 2. Fetch active/pending subscriptions to evaluate inside the cache loop
+    const activeSubscriptions = await StudentSubscription.find({
+      hostelId,
+      status: { $in: ["active", "pending"] }
+    }).sort({ createdAt: -1 }).lean();
+
+    // 3. Process records synchronously
+    const processedData = paymentHistory.map((fineDoc) => {
       const studentId = fineDoc.studentId?._id || fineDoc.studentId;
 
       if (!studentId) {
         fineDoc.belongsToCurrentCycle = false;
-        fineDoc.cycleDescription = "Previous Cycle / Unresolved Student Identity";
+        fineDoc.skipRecord = true; // Flag to filter out corrupted records
         return fineDoc;
       }
 
-      // 3. Find the student's current operational subscription package (Active or Pending)
-      const currentSubscription = await StudentSubscription.findOne({
-        studentId,
-        hostelId,
-        status: { $in: ["active", "pending"] },
-        createdAt: { $lte: new Date(fineDoc.date) }
-      }).sort({ createdAt: -1 });
+      const fineStatus = (fineDoc.status || "").toLowerCase();
+      if (!['pending', 'processing', 'success'].includes(fineStatus)) {
+        fineDoc.skipRecord = true;
+        return fineDoc;
+      }
 
+      // Find the student's active subscription relative to this fine's timestamp
+      const currentSubscription = activeSubscriptions.find(sub => 
+        sub.studentId.toString() === studentId.toString() && 
+        new Date(sub.createdAt) <= new Date(fineDoc.date)
+      );
+
+      // If no active subscription is found, it automatically belongs to a previous cycle
       if (!currentSubscription) {
+        // 🛑 STIPULATION: If it's a previous cycle fine and it's already paid, drop it!
+        if (fineStatus === 'success') {
+          fineDoc.skipRecord = true;
+          return fineDoc;
+        }
         fineDoc.belongsToCurrentCycle = false;
-        fineDoc.cycleDescription = "Previous Cycle Balance (No active package found)";
+        fineDoc.cycleDescription = "Previous Cycle Balance";
         return fineDoc;
       }
 
-      // 4. RULE CHECK A: Base Subscription Plan Initialization Fee
+      // RULE CHECK A: Base Subscription Plan Initialization Fee
       if (fineDoc.isMealPackage) {
         const subInitTime = new Date(currentSubscription.createdAt).getTime();
         const billInitTime = new Date(fineDoc.date).getTime();
@@ -169,46 +151,59 @@ export const getStudentPaymentHistory = async (req, res) => {
         }
       }
 
-      // 5. ✨ NEW TIMELINE DURATION LOGIC VERIFICATION:
-      // Find absolute meal sequence indices for the current subscription block bounds
-      const subCreatedAtDate = new Date(currentSubscription.createdAt);
-      const subDateFormatted = `${String(subCreatedAtDate.getDate()).padStart(2, '0')}/${String(subCreatedAtDate.getMonth() + 1).padStart(2, '0')}/${subCreatedAtDate.getFullYear()}`;
+      // RULE CHECK B: Operational Fines (Guest Meals / Extra Charges / Walk-ins)
+      const desc = fineDoc.description || "";
+      const dateMatch = desc.match(/(\d{2}\/\d{2}\/\d{4})/);
+      const targetSlot = desc.toLowerCase().includes("morning") ? "morning" : "night";
 
-      // Absolute meal number when this package went live (Meal #1 of the block)
-      const cycleStartMealAbsIndex = await getMealSequenceNumber(hostelId, subDateFormatted, "morning");
-      // Absolute meal number when this package reaches its limit (Meal #60 of the block)
-      const cycleEndMealAbsIndex = cycleStartMealAbsIndex + 59;
+      if (dateMatch) {
+        const [fd, fm, fy] = dateMatch[1].split("/").map(Number);
+        const normalizedFineDateStr = `${fd}/${fm}/${fy}`;
+        const cacheKey = `${normalizedFineDateStr}_${targetSlot}`;
 
-      // Convert these bounds to real calendar dates
-      const cycleStartDate = await getMealDateBySequenceNumber(hostelId, cycleStartMealAbsIndex);
-      let cycleEndDate = await getMealDateBySequenceNumber(hostelId, cycleEndMealAbsIndex);
+        const fineMealAbsIndex = mapByDate[cacheKey];
 
-      // Fallback if 60 meals haven't been generated in the system yet: set a future boundary date safely
-      if (!cycleEndDate && cycleStartDate) {
-        cycleEndDate = new Date(cycleStartDate.getTime());
-        cycleEndDate.setDate(cycleEndDate.getDate() + 30); // Project 30 days outward
-      }
+        if (fineMealAbsIndex) {
+          const subCreatedAtDate = new Date(currentSubscription.createdAt);
+          const subDateFormatted = `${subCreatedAtDate.getDate()}/${subCreatedAtDate.getMonth() + 1}/${subCreatedAtDate.getFullYear()}`;
+          
+          const cycleStartMealAbsIndex = mapByDate[`${subDateFormatted}_morning`] || fineMealAbsIndex;
+          const cycleEndMealAbsIndex = cycleStartMealAbsIndex + 59;
 
-      // 6. Compare the fine's record creation date directly against this duration window
-      if (cycleStartDate && cycleEndDate) {
-        const fineTimestamp = new Date(fineDoc.date);
+          const cycleStartDate = mapBySeq[cycleStartMealAbsIndex];
+          let cycleEndDate = mapBySeq[cycleEndMealAbsIndex];
 
-        // ✨ DURATION CHECK: Is the fine date inside the Meal 1 to Meal 60 window?
-        if (fineTimestamp.getTime() >= cycleStartDate.getTime() && fineTimestamp.getTime() <= cycleEndDate.getTime()) {
-          fineDoc.belongsToCurrentCycle = true;
-          fineDoc.cycleDescription = "Current Mess Fine (Falls inside Meal 1-60 Cycle Duration)";
-          return fineDoc;
+          if (!cycleEndDate && cycleStartDate) {
+            cycleEndDate = new Date(cycleStartDate.getTime());
+            cycleEndDate.setDate(cycleEndDate.getDate() + 30);
+          }
+
+          if (cycleStartDate && cycleEndDate) {
+            const fineTimestamp = new Date(fineDoc.date);
+
+            // Check if the fine falls inside the current Meal 1-60 Cycle Duration
+            if (fineTimestamp.getTime() >= cycleStartDate.getTime() && fineTimestamp.getTime() <= cycleEndDate.getTime()) {
+              fineDoc.belongsToCurrentCycle = true;
+              fineDoc.cycleDescription = "Current Mess Fine";
+              return fineDoc;
+            }
+          }
         }
       }
 
-      // Default Fallback: If it falls outside the active calendar duration boundaries, classify it as historical debt
-      fineDoc.belongsToCurrentCycle = false;
-      fineDoc.cycleDescription = "Previous Cycle Balance (Outside active 1-60 block duration)";
-      return fineDoc;
-    }));
+      // 🛑 STIPULATION FALLBACK: If it falls outside the 1-60 current loop duration,
+      // it is a previous cycle fine. If its status is 'success', drop it completely.
+      if (fineStatus === 'success') {
+        fineDoc.skipRecord = true;
+        return fineDoc;
+      }
 
-    // Find live master index token reference code
-    const runningActiveSub = await StudentSubscription.findOne({ hostelId, status: "active" }).select("_id");
+      fineDoc.belongsToCurrentCycle = false;
+      fineDoc.cycleDescription = "Previous Cycle Balance";
+      return fineDoc;
+    }).filter(fine => !fine.skipRecord); // ✨ REMOVES ALL PREVIOUS CYCLE SUCCESS FINES AT THE DB LAYER!
+
+    const runningActiveSub = await StudentSubscription.findOne({ hostelId, status: "active" }).select("_id").lean();
 
     return res.status(200).json({
       success: true,

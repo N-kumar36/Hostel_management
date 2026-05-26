@@ -84,11 +84,26 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
 
   // --- EDIT BOTTOM SHEET ---
   void _showEditSheet(Map<String, dynamic> sub) {
-    String currentPlanId = sub['mealsPlanId'] is Map
-        ? sub['mealsPlanId']['_id']
-        : sub['mealsPlanId'];
-    String currentStatus = sub['status'].toString();
+    // ✨ FIXED: Added clean fallback triggers to prevent 'Null' mutation errors
+    String? rawPlanId = sub['mealsPlanId'] is Map
+        ? sub['mealsPlanId']['_id']?.toString()
+        : sub['mealsPlanId']?.toString();
+        
+    String currentPlanId = rawPlanId ?? "";
+    String currentStatus = (sub['status'] ?? "pending").toString();
     bool isSaving = false;
+
+    // ✨ CRITICAL ENFORCEMENT: If the plan ID is missing from available packages list, populate it dynamically
+    bool planExists = availablePlans.any((p) => p['_id'].toString() == currentPlanId);
+    if (!planExists && currentPlanId.isNotEmpty) {
+      availablePlans.add({
+        '_id': currentPlanId,
+        'planType': sub['planType'] ?? 'Existing Plan',
+        'monthlyPrice': sub['amount'] ?? 0
+      });
+    } else if (currentPlanId.isEmpty && availablePlans.isNotEmpty) {
+      currentPlanId = availablePlans[0]['_id'].toString();
+    }
 
     showModalBottomSheet(
       context: context,
@@ -125,12 +140,13 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                   ),
                   DropdownButton<String>(
                     isExpanded: true,
-                    value: currentPlanId,
+                    value: currentPlanId.isNotEmpty ? currentPlanId : null,
+                    hint: const Text("Select a meal plan"),
                     items: availablePlans.map((p) {
                       return DropdownMenuItem<String>(
                         value: p['_id'].toString(),
                         child: Text(
-                          "${p['planType']} - ₹${p['monthlyPrice'] ?? p['price']}",
+                          "${p['planType']} - ₹${p['monthlyPrice'] ?? p['price'] ?? 0}",
                         ),
                       );
                     }).toList(),
@@ -177,7 +193,7 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      onPressed: isSaving
+                      onPressed: isSaving || currentPlanId.isEmpty
                           ? null
                           : () async {
                               setSheetState(() => isSaving = true);
@@ -193,8 +209,7 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
                                       content: Text(
-                                        res['message'] ??
-                                            "Updated successfully",
+                                        res['message'] ?? "Updated successfully",
                                       ),
                                       backgroundColor: Colors.green,
                                     ),
@@ -211,8 +226,9 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                                   );
                                 }
                               } finally {
-                                if (mounted)
+                                if (mounted) {
                                   setSheetState(() => isSaving = false);
+                                }
                               }
                             },
                       child: isSaving
@@ -279,7 +295,7 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                 final res = await api.deleteSubscriptionByManager(subId);
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
+                     SnackBar(
                       content: Text(res['message'] ?? "Deleted successfully"),
                       backgroundColor: Colors.red,
                     ),
@@ -320,7 +336,6 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
       ),
       body: Column(
         children: [
-          // Search Input Layout Panel
           Container(
             color: Colors.white,
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
@@ -358,7 +373,6 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
             ),
           ),
 
-          // Filters Horizontal Layout Row Bar
           Container(
             width: double.infinity,
             padding: const EdgeInsets.only(
@@ -398,42 +412,42 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                     child: CircularProgressIndicator(color: Colors.green),
                   )
                 : _filteredSubscriptions.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.no_meals_outlined,
-                          size: 70,
-                          color: Colors.grey.shade300,
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.no_meals_outlined,
+                              size: 70,
+                              color: Colors.grey.shade300,
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              _searchController.text.isNotEmpty
+                                  ? "No matches found for search query"
+                                  : "No $selectedFilter Subscriptions Listed",
+                              style: TextStyle(
+                                color: Colors.grey.shade500,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 16),
-                        Text(
-                          _searchController.text.isNotEmpty
-                              ? "No matches found for search query"
-                              : "No $selectedFilter Subscriptions Listed",
-                          style: TextStyle(
-                            color: Colors.grey.shade500,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                          ),
+                      )
+                    : RefreshIndicator(
+                        onRefresh: _fetchData,
+                        color: Colors.green,
+                        child: ListView.builder(
+                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+                          itemCount: _filteredSubscriptions.length,
+                          itemBuilder: (context, index) {
+                            return _buildSubscriptionCard(
+                              _filteredSubscriptions[index],
+                            );
+                          },
                         ),
-                      ],
-                    ),
-                  )
-                : RefreshIndicator(
-                    onRefresh: _fetchData,
-                    color: Colors.green,
-                    child: ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-                      itemCount: _filteredSubscriptions.length,
-                      itemBuilder: (context, index) {
-                        return _buildSubscriptionCard(
-                          _filteredSubscriptions[index],
-                        );
-                      },
-                    ),
-                  ),
+                      ),
           ),
         ],
       ),
@@ -463,14 +477,13 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
 
   Widget _buildSubscriptionCard(Map<String, dynamic> sub) {
     final student = sub['studentId'] is Map ? sub['studentId'] : {};
-    final status = sub['status'].toString();
-    final planType = sub['planType'].toString();
-    final month = sub['month'].toString();
+    final status = (sub['status'] ?? "pending").toString();
+    final planType = (sub['planType'] ?? "Meals").toString();
+    final month = (sub['month'] ?? "").toString();
 
     final usage = sub['usage'] ?? {};
     final limits = sub['maxLimits'] ?? {};
 
-    // Calculate Individual Card Meal Metrics Context Block
     int studentAllowed = 0;
     int studentUsed = 0;
 
@@ -484,8 +497,10 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
 
     String formattedDate = "";
     try {
-      DateTime dt = DateTime.parse(sub['createdAt']);
-      formattedDate = DateFormat('MMM dd, yyyy').format(dt.toLocal());
+      if (sub['createdAt'] != null) {
+        DateTime dt = DateTime.parse(sub['createdAt']);
+        formattedDate = DateFormat('MMM dd, yyyy').format(dt.toLocal());
+      }
     } catch (_) {}
 
     return Card(
@@ -501,7 +516,6 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Student Profile Header & Operation Row Actions
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -544,14 +558,16 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                           fontWeight: FontWeight.w500,
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        "Subscribed: $formattedDate",
-                        style: TextStyle(
-                          color: Colors.grey.shade400,
-                          fontSize: 11,
+                      if (formattedDate.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          "Subscribed: $formattedDate",
+                          style: TextStyle(
+                            color: Colors.grey.shade400,
+                            fontSize: 11,
+                          ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                 ),
@@ -572,8 +588,6 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                         status.toUpperCase(),
                         style: TextStyle(
                           color: statusColor,
-                          fontStyle: FontStyle
-                              .normal,
                           fontWeight: FontWeight.bold,
                           fontSize: 10,
                         ),
@@ -600,7 +614,7 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                             color: Colors.redAccent,
                             size: 20,
                           ),
-                          onPressed: () => _showDeleteConfirmation(sub['_id']),
+                          onPressed: () => _showDeleteConfirmation(sub['_id']?.toString() ?? ""),
                           constraints: const BoxConstraints(),
                           padding: const EdgeInsets.all(4),
                         ),
@@ -616,7 +630,6 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
               child: Divider(height: 1, thickness: 0.8),
             ),
 
-            // Individual Student Live Counter Metrics Display Summary Box
             Container(
               padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
               decoration: BoxDecoration(
@@ -650,7 +663,6 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
 
             const SizedBox(height: 14),
 
-            // Plan Sub-Information Metadata Tags
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -704,7 +716,6 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
             ),
             const SizedBox(height: 8),
 
-            // Grid-like Wrapping Categorized Chips View
             Wrap(
               spacing: 8,
               runSpacing: 8,

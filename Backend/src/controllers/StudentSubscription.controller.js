@@ -152,9 +152,10 @@ export const getManagerSubscriptions = async (req, res) => {
     try {
         const hostelId = req.user.hostelId; // From manager's token
 
-        // Fetch ALL subscriptions for this hostel and populate student info
+        // Fetch ALL subscriptions for this hostel and populate student info with email included!
         const subscriptions = await StudentSubscription.find({ hostelId })
-            .populate("studentId", "name regNum department roomNumber")
+            // ✨ FIXED: Added "email" to the projection criteria list down below
+            .populate("studentId", "name email regNum department roomNumber")
             .populate("mealsPlanId", "planName")
             .sort({ createdAt: -1 }); // Newest first
 
