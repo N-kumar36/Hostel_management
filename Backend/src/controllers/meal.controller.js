@@ -494,23 +494,43 @@ export const getAllMeals = async (req, res) => {
       return res.status(403).json({ success: false, message: "Access denied. No hostel assigned." });
     }
 
+    // 1. Fetch ALL meals for this hostel from the database
+    const allMeals = await Meal.find({ hostelId: userHostelId }).lean();
+
+    // 2. Sort them chronologically in memory to avoid date format sorting bugs
+    allMeals.sort((a, b) => {
+      const [dA, mA, yA] = a.date.split("/").map(Number);
+      const [dB, mB, yB] = b.date.split("/").map(Number);
+      return new Date(yA, mA - 1, dA) - new Date(yB, mB - 1, dB);
+    });
+
+    // 3. Find today's date placeholder index in the timeline array
     const now = new Date();
-    const getMonthYear = (date) => {
-      const m = String(date.getMonth() + 1).padStart(2, '0');
-      const y = date.getFullYear();
-      return `${m}/${y}`;
-    };
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-    const currentMonth = getMonthYear(now);
-    const nextMonthDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    const nextMonth = getMonthYear(nextMonthDate);
+    const todayIndex = allMeals.findIndex(meal => {
+      const [d, m, y] = meal.date.split("/").map(Number);
+      return new Date(y, m - 1, d) >= todayStart;
+    });
 
-    const meals = await Meal.find({
-      hostelId: userHostelId,
-      date: { $regex: new RegExp(`(${currentMonth}|${nextMonth})$`) }
-    }).sort({ date: 1 });
+    let targetMeals = [];
 
-    return res.status(200).json({ success: true, count: meals.length, meals });
+    if (todayIndex !== -1) {
+      // Show 10 previous meals for editing past entries, and 50 upcoming meals
+      // Totaling a clean, continuous rolling block of 60 meals
+      const startPos = Math.max(0, todayIndex - 10);
+      targetMeals = allMeals.slice(startPos, startPos + 60);
+    } else {
+      // Fallback: If all meals in the system are in the past, return the last 60 entries
+      targetMeals = allMeals.slice(-60);
+    }
+
+    return res.status(200).json({
+      success: true,
+      count: targetMeals.length,
+      meals: targetMeals
+    });
+
   } catch (error) {
     return res.status(500).json({ success: false, message: "Error fetching meals: " + error.message });
   }
