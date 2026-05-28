@@ -19,6 +19,8 @@ class _MealManagementPageState extends State<MealManagementPage> {
   bool isRoutineLoading = false;
   List<dynamic> meals = [];
   String? mealId;
+  String? currentMorningMealNum;
+  String? currentNightMealNum;
 
   DateTime selectedDate = DateTime.now();
   String? selectedMorningMenu;
@@ -110,20 +112,27 @@ class _MealManagementPageState extends State<MealManagementPage> {
     setState(() {
       try {
         mealId = meal['_id'];
-        selectedDate = DateFormat('dd/MM/yyyy').parse(meal['date']);
-        selectedMorningMenu = meal['morning']['manu'];
-        selectedNightMenu = meal['night']['manu'];
         
-        // Hardened format parsing safely managing native backend objects strings layout differences
-        final morningRawTime = meal['morning']['lockTime'] ?? "";
-        final nightRawTime = meal['night']['lockTime'] ?? "";
+        // ✨ FIXED: Extract meal numbers from inside the respective slot objects matching your schema
+        currentMorningMealNum = meal['morning']?['mealsNum']?.toString();
+        currentNightMealNum = meal['night']?['mealsNum']?.toString();
+        
+        if (meal['date'] != null) {
+          selectedDate = DateFormat('dd/MM/yyyy').parse(meal['date'].toString());
+        }
+        
+        selectedMorningMenu = meal['morning']?['manu'];
+        selectedNightMenu = meal['night']?['manu'];
+        
+        final morningRawTime = meal['morning']?['lockTime'] ?? "";
+        final nightRawTime = meal['night']?['lockTime'] ?? "";
 
         morningLock = morningRawTime.toString().contains("T") 
-            ? TimeOfDay.fromDateTime(DateTime.parse(morningRawTime))
+            ? TimeOfDay.fromDateTime(DateTime.parse(morningRawTime).toLocal())
             : const TimeOfDay(hour: 7, minute: 0);
 
         nightLock = nightRawTime.toString().contains("T") 
-            ? TimeOfDay.fromDateTime(DateTime.parse(nightRawTime))
+            ? TimeOfDay.fromDateTime(DateTime.parse(nightRawTime).toLocal())
             : const TimeOfDay(hour: 17, minute: 0);
       } catch (e) {
         debugPrint("Error loading operational targets inside form elements: $e");
@@ -134,6 +143,8 @@ class _MealManagementPageState extends State<MealManagementPage> {
   void _resetForm() {
     setState(() {
       mealId = null;
+      currentMorningMealNum = null;
+      currentNightMealNum = null;
       selectedMorningMenu = null;
       selectedNightMenu = null;
     });
@@ -475,7 +486,11 @@ class _MealManagementPageState extends State<MealManagementPage> {
               ),
             ),
           ),
-          Expanded(child: _buildMealsList()),
+          Expanded(
+            child: isLoading && meals.isEmpty 
+                ? Center(child: CircularProgressIndicator(color: themeColor)) 
+                : _buildMealsList()
+          ),
         ],
       ),
     );
@@ -520,6 +535,37 @@ class _MealManagementPageState extends State<MealManagementPage> {
                 ),
               ],
             ),
+            // ✨ FIXED: Dynamic UI badge informing the manager which meal slot indexes are currently selected
+            if (currentMorningMealNum != null || currentNightMealNum != null) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  if (currentMorningMealNum != null)
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(6)),
+                        child: Text(
+                          "Morning Index: #$currentMorningMealNum",
+                          style: TextStyle(color: Colors.orange.shade800, fontSize: 10.5, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                  if (currentMorningMealNum != null && currentNightMealNum != null) const SizedBox(width: 8),
+                  if (currentNightMealNum != null)
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(color: Colors.indigo.shade50, borderRadius: BorderRadius.circular(6)),
+                        child: Text(
+                          "Night Index: #$currentNightMealNum",
+                          style: TextStyle(color: Colors.indigo.shade800, fontSize: 10.5, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
             const SizedBox(height: 15),
             _buildSubmitButton(),
           ],
@@ -596,9 +642,13 @@ class _MealManagementPageState extends State<MealManagementPage> {
         final meal = meals[index];
         final id = meal['_id'];
         final bool isBeingEdited = mealId == id;
+        
+        // ✨ FIXED: Pull mealsNum individually from within both sub-objects in the card view below
+        final String morningNum = meal['morning']?['mealsNum']?.toString() ?? "N/A";
+        final String nightNum = meal['night']?['mealsNum']?.toString() ?? "N/A";
 
-        final mLock = _formatLockTime(meal['morning']['lockTime']);
-        final nLock = _formatLockTime(meal['night']['lockTime']);
+        final mLock = _formatLockTime(meal['morning']?['lockTime'] ?? "");
+        final nLock = _formatLockTime(meal['night']?['lockTime'] ?? "");
 
         return Card(
           margin: const EdgeInsets.only(bottom: 10),
@@ -613,7 +663,7 @@ class _MealManagementPageState extends State<MealManagementPage> {
               children: [
                 Row(
                   children: [
-                    Text(meal['date'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    Text(meal['date'] ?? "N/A", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     const Spacer(),
                     IconButton(
                       icon: Icon(isBeingEdited ? Icons.edit : Icons.edit_outlined, color: Colors.blue),
@@ -621,20 +671,27 @@ class _MealManagementPageState extends State<MealManagementPage> {
                     ),
                   ],
                 ),
-                const Divider(),
+                const Divider(height: 8),
+                
+                // Morning Tile Slot View Component
                 _buildCancelTile(
                   "Morning",
-                  meal['morning']['manu'],
+                  meal['morning']?['manu'] ?? "N/A",
                   mLock,
-                  meal['morning']['isCancelled'] ?? false,
-                  () => _handleToggleCancel(id, "morning", meal['morning']['isCancelled'] ?? false),
+                  morningNum, // Added dynamic sequence display
+                  meal['morning']?['isCancelled'] ?? false,
+                  () => _handleToggleCancel(id, "morning", meal['morning']?['isCancelled'] ?? false),
                 ),
+                const SizedBox(height: 4),
+                
+                // Night Tile Slot View Component
                 _buildCancelTile(
                   "Night",
-                  meal['night']['manu'],
+                  meal['night']?['manu'] ?? "N/A",
                   nLock,
-                  meal['night']['isCancelled'] ?? false,
-                  () => _handleToggleCancel(id, "night", meal['night']['isCancelled'] ?? false),
+                  nightNum, // Added dynamic sequence display
+                  meal['night']?['isCancelled'] ?? false,
+                  () => _handleToggleCancel(id, "night", meal['night']?['isCancelled'] ?? false),
                 ),
               ],
             ),
@@ -646,7 +703,8 @@ class _MealManagementPageState extends State<MealManagementPage> {
 
   String _formatLockTime(String isoString) {
     try {
-      return DateFormat('hh:mm a').format(DateTime.parse(isoString));
+      if (isoString.isEmpty) return "N/A";
+      return DateFormat('hh:mm a').format(DateTime.parse(isoString).toLocal());
     } catch (e) {
       return "N/A";
     }
@@ -656,24 +714,47 @@ class _MealManagementPageState extends State<MealManagementPage> {
     String label,
     String menu,
     String lockTime,
+    String mealNumber, // ✨ Captured from nested object maps
     bool isCancelled,
     VoidCallback onToggle,
   ) {
+    bool isMorning = label == "Morning";
     return ListTile(
       dense: true,
       contentPadding: EdgeInsets.zero,
       leading: Icon(
-        label == "Morning" ? Icons.wb_sunny : Icons.nightlight_round,
-        color: isCancelled ? Colors.grey : Colors.orange,
+        isMorning ? Icons.wb_sunny : Icons.nightlight_round,
+        color: isCancelled ? Colors.grey : (isMorning ? Colors.orange : Colors.indigo.shade400),
         size: 18,
       ),
-      title: Text(
-        "${label.toUpperCase()}: ${menu.toUpperCase()}",
-        style: TextStyle(
-          decoration: isCancelled ? TextDecoration.lineThrough : null,
-          color: isCancelled ? Colors.red : Colors.black87,
-          fontWeight: isCancelled ? FontWeight.normal : FontWeight.bold,
-        ),
+      title: Row(
+        children: [
+          Text(
+            "${label.toUpperCase()}: ${menu.toUpperCase()}",
+            style: TextStyle(
+              decoration: isCancelled ? TextDecoration.lineThrough : null,
+              color: isCancelled ? Colors.red : Colors.black87,
+              fontWeight: isCancelled ? FontWeight.normal : FontWeight.bold,
+            ),
+          ),
+          const SizedBox(width: 6),
+          // ✨ FIXED: Added distinct sequence indicator tags inside individual meal rows
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+            decoration: BoxDecoration(
+              color: isCancelled ? Colors.grey.shade100 : (isMorning ? Colors.orange.shade50 : Colors.indigo.shade50),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              "#$mealNumber",
+              style: TextStyle(
+                fontSize: 8.5, 
+                fontWeight: FontWeight.bold, 
+                color: isCancelled ? Colors.grey : (isMorning ? Colors.orange.shade800 : Colors.indigo.shade800)
+              ),
+            ),
+          ),
+        ],
       ),
       subtitle: Text("Locks at $lockTime", style: const TextStyle(fontSize: 10, color: Colors.grey)),
       trailing: TextButton(
@@ -715,20 +796,41 @@ class _MealManagementPageState extends State<MealManagementPage> {
     bool isEdit = mealId != null;
     return Column(
       children: [
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: isEdit ? Colors.orange : themeColor,
-              padding: const EdgeInsets.symmetric(vertical: 15),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        Row(
+          children: [
+            if (isEdit) ...[
+              Expanded(
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    side: const BorderSide(color: Colors.amber, width: 2),
+                  ),
+                  onPressed: _resetForm,
+                  child: const Text(
+                    "CANCEL EDIT",
+                    style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+            ],
+            Expanded(
+              flex: 2,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: isEdit ? Colors.orange : themeColor,
+                  padding: const EdgeInsets.symmetric(vertical: 15),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                onPressed: isLoading || isRoutineLoading ? null : _submitForm,
+                child: Text(
+                  isEdit ? "UPDATE PLAN" : "CREATE PLAN",
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                ),
+              ),
             ),
-            onPressed: isLoading || isRoutineLoading ? null : _submitForm,
-            child: Text(
-              isEdit ? "UPDATE MEAL PLAN" : "CREATE MEAL PLAN",
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            ),
-          ),
+          ],
         ),
         if (!isEdit) ...[
           const SizedBox(height: 10),

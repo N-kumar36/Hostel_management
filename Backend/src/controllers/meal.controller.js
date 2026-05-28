@@ -3,7 +3,7 @@ import Meal from "../models/Meal.js";
 import WeeklyRoutine from "../models/WeeklyRoutine.js";
 
 /**
- * 🔄 INTERNAL HELPER: Recalculates and rearranges the entire active 
+ *  INTERNAL HELPER: Recalculates and rearranges the entire active 
  * meal sequence numbers from 1 to 60, ignoring cancelled slots.
  * Fixed: Chronological javascript sorting eliminates the mixed-up string indexing bug!
  */
