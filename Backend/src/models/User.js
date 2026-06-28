@@ -17,12 +17,15 @@ const userSchema = new mongoose.Schema(
     department: { type: String },  // Added for Flutter RegisterPage
     year: { type: String },        // Added for Flutter RegisterPage
 
+
     // Hostel Association
     hostelId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Hostel",
       required: true,
     },
+
+    roomNumber: { type: String },
 
     // Access Control
     role: {
@@ -32,15 +35,15 @@ const userSchema = new mongoose.Schema(
     },
 
     // Pending add to hostel
-    pending:{
+    status: {
       type: String,
-      enum: ["pending", "approve"],
-      default: "pending"
+      enum: ["unverified", "active", "passout", "left_hostel"],
+      default: "unverified"
     },
 
     photoURL: { type: String, default: "" },
   },
-  { timestamps: true } // Automatically manages createdAt and updatedAt
+  { timestamps: true } 
 );
 
 export default mongoose.model("User", userSchema);

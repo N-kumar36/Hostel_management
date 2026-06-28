@@ -88,7 +88,7 @@ export const selectPackage = async (req, res) => {
         }
 
         // 4. Generate Account Statement Invoice (Fine framework)
-        // ✅ Quiet background lookup without returning 404 block closures if manager is missing
+        //  Quiet background lookup without returning 404 block closures if manager is missing
         const manager = await User.findOne({ hostelId, role: "manager" });
 
         // Fallback safety to prevent validation crashes while fulfilling required database patterns
@@ -144,6 +144,63 @@ export const getAllSubscriptions = async (req, res) => {
     }
 };
 
+
+export const compileAllSubscriptions = async (req, res) => {
+  try {
+    const hostelId = req.user.hostelId;
+    if (!hostelId) {
+      return res.status(403).json({ 
+        success: false, 
+        message: "Access denied. No hostel assigned to your profile." 
+      });
+    }
+
+    console.log("Compllldfn")
+
+    // Fetch only the latest 60 records matching criteria to protect the database execution window
+    const targetSubscriptions = await StudentSubscription.find({
+      hostelId: hostelId,
+      status: { $in: ["pending", "active"] }
+    })
+    .sort({ _id: -1 })
+    .limit(60)
+    .select("_id")
+    .lean();
+
+    if (targetSubscriptions.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: "No pending or active subscriptions found to compile.",
+        modifiedCount: 0
+      });
+    }
+
+    const subscriptionIds = targetSubscriptions.map(sub => sub._id);
+
+    // Perform bulk status update only on the indexed ID subset
+    const result = await StudentSubscription.updateMany(
+      { 
+        _id: { $in: subscriptionIds } 
+      },
+      { 
+        $set: { status: "completed" } 
+      }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: `Successfully compiled and processed ${result.modifiedCount} meal packs.`,
+      modifiedCount: result.modifiedCount
+    });
+
+  } catch (error) {
+    console.error("Critical Bulk Subscription Compilation Error:", error);
+    return res.status(500).json({ 
+      success: false, 
+      message: "Internal Server Error: " + error.message 
+    });
+  }
+};
 
 
 

@@ -91,55 +91,64 @@ export const payFine = async (req, res) => {
 
 
 
-
+/**
+ * @desc    Fetch student fines filtered dynamically by meal cycle date range (DD/MM/YYYY)
+ * @route   GET /api/fines/pending
+ * @access  Private (Manager Only)
+ */
 export const getPendingFines = async (req, res) => {
   try {
     const hostelId = req.user.hostelId;
-    const month = req.query.month; // e.g., ?month=March 2026 or ?month=2026-03
+    if (!hostelId) {
+      return res.status(403).json({ success: false, message: "Access denied. No hostel assigned." });
+    }
 
+    const { startDateStr, endDateStr } = req.query;
     let query = { hostelId: hostelId };
 
-    console.log("Received month query parameter:", month);
+    console.log("Received meal cycle parameters: ", startDateStr, "to", endDateStr);
 
-    if (month) {
+    // 🌟 Parse date parameters into standard MongoDB ISO Date formats
+    if (startDateStr && startDateStr !== 'null' && endDateStr && endDateStr !== 'null') {
+      const [startDay, startMonth, startYear] = startDateStr.split("/");
+      const [endDay, endMonth, endYear] = endDateStr.split("/");
 
-      const startDate = new Date(month);
+      const trueStartDate = new Date(`${startYear}-${startMonth}-${startDay}T00:00:00.000Z`);
+      const trueEndDate = new Date(`${endYear}-${endMonth}-${endDay}T23:59:59.999Z`);
 
-      if (isNaN(startDate.getTime())) {
+      if (isNaN(trueStartDate.getTime()) || isNaN(trueEndDate.getTime())) {
         return res.status(400).json({
           success: false,
-          message: "Invalid month format provided."
+          message: "Invalid start or end date format provided. Expected format: DD/MM/YYYY"
         });
       }
 
-      const endDate = new Date(startDate);
-      endDate.setMonth(endDate.getMonth() + 1);
-
       query.date = {
-        $gte: startDate, // On or after the 1st of the target month
-        $lt: endDate     // Strictly before the 1st of the next month
+        $gte: trueStartDate, // From midnight on the start date
+        $lte: trueEndDate    // Until the end of the final day
       };
     }
 
-    // 3. Execute the query
+    // Execute lookup with populated student records
     const pendingFines = await Fine.find(query)
       .populate("studentId", "name email photoURL")
-      .sort({ date: -1 });
+      .sort({ date: -1 })
+      .lean();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       count: pendingFines.length,
       data: pendingFines,
     });
+
   } catch (error) {
-    console.error("Error in getPendingFines:", error);
-    res.status(500).json({
+    console.error("Error in getPendingFines controller:", error);
+    return res.status(500).json({
       success: false,
       message: "Error fetching pending fines: " + error.message,
     });
   }
 };
-
 
 // Manager approves or rejects a fine/bill
 export const updateFineStatus = async (req, res) => {
@@ -249,7 +258,7 @@ export const convertFineToSubscription = async (req, res) => {
     for (const type of mealTypes) {
       if (combinedText.includes(type)) {
         consumedType = type;
-        break; 
+        break;
       }
     }
 
@@ -263,11 +272,11 @@ export const convertFineToSubscription = async (req, res) => {
       // =========================================================
       // SCENARIO A: STUDENT ALREADY HAS A PLAN
       // =========================================================
-      
+
       // 1. Add the consumed meal to their existing plan usage
       if (consumedType) {
         subscription.usage[consumedType] = (subscription.usage[consumedType] || 0) + 1;
-        subscription.markModified("usage"); 
+        subscription.markModified("usage");
       }
       await subscription.save();
 
@@ -283,11 +292,11 @@ export const convertFineToSubscription = async (req, res) => {
       // =========================================================
       // SCENARIO B: STUDENT DOES NOT HAVE A PLAN YET
       // =========================================================
-      
+
       const initialUsage = { veg: 0, egg: 0, paneer: 0, chicken: 0, fish: 0, mutton: 0 };
-      
+
       if (consumedType) {
-        initialUsage[consumedType] = 1; 
+        initialUsage[consumedType] = 1;
       }
 
       // 1. Create the new subscription

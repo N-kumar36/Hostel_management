@@ -1,74 +1,9 @@
 import moment from "moment";
 import Meal from "../models/Meal.js";
 import WeeklyRoutine from "../models/WeeklyRoutine.js";
+import { recalculateMealNumbers } from "./utils/mealHelpers.js"; // Replace with your actual utility path
 
-/**
- *  INTERNAL HELPER: Recalculates and rearranges the entire active 
- * meal sequence numbers from 1 to 60, ignoring cancelled slots.
- * Fixed: Chronological javascript sorting eliminates the mixed-up string indexing bug!
- */
-const recalculateMealNumbers = async (hostelId) => {
-  // 1. Fetch all documents for this specific hostel
-  const allMeals = await Meal.find({ hostelId });
 
-  // 2. Sort them accurately in JavaScript using true date comparison operations
-  allMeals.sort((a, b) => {
-    const [dayA, monthA, yearA] = a.date.split("/").map(Number);
-    const [dayB, monthB, yearB] = b.date.split("/").map(Number);
-
-    const dateA = new Date(yearA, monthA - 1, dayA);
-    const dateB = new Date(yearB, monthB - 1, dayB);
-
-    if (dateA.getTime() !== dateB.getTime()) {
-      return dateA - dateB;
-    }
-    // Secondary fallback sorting parameter if dates match exactly
-    return (a.createdAt || 0) - (b.createdAt || 0);
-  });
-
-  let sequentialCounter = 0;
-
-  for (let meal of allMeals) {
-    let modified = false;
-
-    // --- Process Morning Slot ---
-    if (!meal.morning.isCancelled) {
-      sequentialCounter++;
-      // Reset count back to 1 when hitting package maximum baseline cycle limits (e.g., 61 becomes 1)
-      const relativeNum = ((sequentialCounter - 1) % 60) + 1;
-
-      if (meal.morning.mealsNum !== relativeNum.toString()) {
-        meal.morning.mealsNum = relativeNum.toString();
-        modified = true;
-      }
-    } else {
-      if (meal.morning.mealsNum !== "0") {
-        meal.morning.mealsNum = "0";
-        modified = true;
-      }
-    }
-
-    // --- Process Night Slot ---
-    if (!meal.night.isCancelled) {
-      sequentialCounter++;
-      const relativeNum = ((sequentialCounter - 1) % 60) + 1;
-
-      if (meal.night.mealsNum !== relativeNum.toString()) {
-        meal.night.mealsNum = relativeNum.toString();
-        modified = true;
-      }
-    } else {
-      if (meal.night.mealsNum !== "0") {
-        meal.night.mealsNum = "0";
-        modified = true;
-      }
-    }
-
-    if (modified) {
-      await meal.save();
-    }
-  }
-};
 
 /**
  * @desc    Create or update a master daily meal layout configuration
@@ -79,24 +14,34 @@ export const createMeal = async (req, res) => {
     const { date, morning, night } = req.body;
     const hostelId = req.user.hostelId;
 
+    console.log("create meal", date, morning, night)
+
     if (!date || !morning || !night) {
       return res.status(400).json({ success: false, message: "Missing required fields" });
     }
+
+    // Helper to safely parse strings into Dates without unexpected timezone changes
+    const parseLockTime = (targetDateStr, isoTimeStr) => {
+      // If the incoming string is a full ISO timestamp, extract just the time component HH:MM
+      const timePart = isoTimeStr.includes("T") ? isoTimeStr.split("T")[1].substring(0, 5) : isoTimeStr.substring(0, 5);
+      const [day, month, year] = targetDateStr.split("/");
+      // Build a clean local date constructor string
+      return new Date(`${year}-${month}-${day}T${timePart}:00.000Z`);
+    };
 
     const existingMeal = await Meal.findOne({ date, hostelId });
 
     if (existingMeal) {
       existingMeal.morning.manu = morning.manu;
-      existingMeal.morning.lockTime = new Date(morning.lockTime);
+      existingMeal.morning.lockTime = parseLockTime(date, morning.lockTime);
 
       if (morning.isCancelled !== undefined) existingMeal.morning.isCancelled = morning.isCancelled;
 
       existingMeal.night.manu = night.manu;
-      existingMeal.night.lockTime = new Date(night.lockTime);
+      existingMeal.night.lockTime = parseLockTime(date, night.lockTime);
       if (night.isCancelled !== undefined) existingMeal.night.isCancelled = night.isCancelled;
 
       await existingMeal.save();
-
       await recalculateMealNumbers(hostelId);
 
       const updatedMeal = await Meal.findOne({ date, hostelId });
@@ -109,7 +54,7 @@ export const createMeal = async (req, res) => {
       morning: {
         manu: morning.manu,
         mealsNum: "0",
-        lockTime: new Date(morning.lockTime),
+        lockTime: parseLockTime(date, morning.lockTime),
         isLocked: false,
         isCancelled: false,
         studentVotes: [],
@@ -118,7 +63,7 @@ export const createMeal = async (req, res) => {
       night: {
         manu: night.manu,
         mealsNum: "0",
-        lockTime: new Date(night.lockTime),
+        lockTime: parseLockTime(date, night.lockTime),
         isLocked: false,
         isCancelled: false,
         studentVotes: [],
@@ -214,60 +159,107 @@ export const autoGenerateMeals = async (req, res) => {
  * @desc    Inline meal updating controller
  * @route   PUT /api/meals/update/:mealId
  */
+
 export const updateMeal = async (req, res) => {
   try {
     const { mealId } = req.params;
+    
+    // 1. Fetch the target meal record first
+    const existingMeal = await Meal.findById(mealId);
+    if (!existingMeal) {
+      return res.status(404).json({ success: false, message: "Meal configuration record not found." });
+    }
+
     const updateData = {};
+    const clearMorningArrays = {};
+    const clearNightArrays = {};
 
+    // 🛡️ MORNING SLOT OPERATIONS
     if (req.body.morning) {
-      if (req.body.morning.manu) updateData["morning.manu"] = req.body.morning.manu;
-      if (req.body.morning.isCancelled !== undefined) updateData["morning.isCancelled"] = req.body.morning.isCancelled;
-      if (req.body.morning.lockTime) updateData["morning.lockTime"] = new Date(req.body.morning.lockTime);
+      // Rule 1: If menu item changes, wipe the arrays so students can revote
+      if (req.body.morning.manu && req.body.morning.manu !== existingMeal.morning.manu) {
+        updateData["morning.manu"] = req.body.morning.manu;
+        
+        // Clear student votes and guest requests out completely
+        clearMorningArrays["morning.studentVotes"] = [];
+        clearMorningArrays["morning.guestRequests"] = [];
+      }
+      
+      // Rule 2: If canceling the meal, update status but KEEP the votes intact
+      if (req.body.morning.isCancelled !== undefined) {
+        updateData["morning.isCancelled"] = req.body.morning.isCancelled;
+      }
+      
+      if (req.body.morning.lockTime) {
+        const timePart = req.body.morning.lockTime.includes("T") 
+          ? req.body.morning.lockTime.split("T")[1].substring(0, 5) 
+          : req.body.morning.lockTime.substring(0, 5);
+        const [day, month, year] = existingMeal.date.split("/");
+        updateData["morning.lockTime"] = new Date(`${year}-${month}-${day}T${timePart}:00.000Z`);
+      }
     }
 
+    // 🛡️ NIGHT SLOT OPERATIONS
     if (req.body.night) {
-      if (req.body.night.manu) updateData["night.manu"] = req.body.night.manu;
-      if (req.body.night.isCancelled !== undefined) updateData["night.isCancelled"] = req.body.night.isCancelled;
-      if (req.body.night.lockTime) updateData["night.lockTime"] = new Date(req.body.night.lockTime);
+      // Rule 1: If menu item changes, wipe the arrays so students can revote
+      if (req.body.night.manu && req.body.night.manu !== existingMeal.night.manu) {
+        updateData["night.manu"] = req.body.night.manu;
+        
+        // Clear student votes and guest requests out completely
+        clearNightArrays["night.studentVotes"] = [];
+        clearNightArrays["night.guestRequests"] = [];
+      }
+      
+      // Rule 2: If canceling the meal, update status but KEEP the votes intact
+      if (req.body.night.isCancelled !== undefined) {
+        updateData["night.isCancelled"] = req.body.night.isCancelled;
+      }
+      
+      if (req.body.night.lockTime) {
+        const timePart = req.body.night.lockTime.includes("T") 
+          ? req.body.night.lockTime.split("T")[1].substring(0, 5) 
+          : req.body.night.lockTime.substring(0, 5);
+        const [day, month, year] = existingMeal.date.split("/");
+        updateData["night.lockTime"] = new Date(`${year}-${month}-${day}T${timePart}:00.000Z`);
+      }
     }
 
+    // 2. Build the final update payload combining atomic sets and clears
+    const finalUpdatePayload = { $set: updateData };
+    
+    // Add arrays to be wiped out if menu changed
+    if (Object.keys(clearMorningArrays).length > 0 || Object.keys(clearNightArrays).length > 0) {
+      finalUpdatePayload.$set = { 
+        ...updateData, 
+        ...clearMorningArrays, 
+        ...clearNightArrays 
+      };
+    }
+
+    // 3. Commit changes to MongoDB
     const updatedMeal = await Meal.findByIdAndUpdate(
       mealId,
-      { $set: updateData },
+      finalUpdatePayload,
       { new: true, runValidators: true }
     );
 
     await recalculateMealNumbers(req.user.hostelId);
 
-    return res.json({ success: true, meal: updatedMeal });
+    return res.status(200).json({ 
+      success: true, 
+      message: "Meal configuration synchronized successfully.", 
+      meal: updatedMeal 
+    });
+
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ 
+      success: false, 
+      message: "Internal server side update process error: " + error.message 
+    });
   }
 };
 
-/**
- * @desc    Cancel whole daily meal routine (Toggles both morning & night slots to cancelled)
- * @route   PUT /api/meals/cancel/:id
- */
-export const cancelMeal = async (req, res) => {
-  try {
-    const meal = await Meal.findOneAndUpdate(
-      { _id: req.params.id, hostelId: req.user.hostelId },
-      { $set: { "morning.isCancelled": true, "night.isCancelled": true, "morning.mealsNum": "0", "night.mealsNum": "0" } },
-      { new: true }
-    );
 
-    if (!meal) {
-      return res.status(404).json({ success: false, message: "Meal not found" });
-    }
-
-    await recalculateMealNumbers(req.user.hostelId);
-
-    return res.json({ success: true, message: "Meal items marked as cancelled and sequence re-arranged." });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: err.message });
-  }
-};
 
 /**
  * @desc    Atomically cast a personal plate vote with dynamic item preferences mapping
@@ -487,6 +479,7 @@ export const getMealStatus = async (req, res) => {
   }
 };
 
+
 export const getAllMeals = async (req, res) => {
   try {
     const userHostelId = req.user.hostelId;
@@ -494,36 +487,83 @@ export const getAllMeals = async (req, res) => {
       return res.status(403).json({ success: false, message: "Access denied. No hostel assigned." });
     }
 
-    // 1. Fetch ALL meals for this hostel from the database
-    const allMeals = await Meal.find({ hostelId: userHostelId }).lean();
+    const { startDateStr, endDateStr } = req.query;
+    console.log("Query Parameters Received: ", startDateStr, endDateStr);
 
-    // 2. Sort them chronologically in memory to avoid date format sorting bugs
-    allMeals.sort((a, b) => {
+    let targetMeals = [];
+
+    // ➔ OPTION A: If at least a Start Date is available, fetch all meals from that date onwards
+    if (startDateStr && startDateStr !== 'null') {
+      const [startDay, startMonth, startYear] = startDateStr.split("/");
+      const trueStartDate = new Date(`${startYear}-${startMonth}-${startDay}T00:00:00.000Z`);
+
+      // If an explicit end date is also present, capture the bound; otherwise fallback to future infinity
+      let trueEndDate = null;
+      if (endDateStr && endDateStr !== 'null') {
+        const [endDay, endMonth, endYear] = endDateStr.split("/");
+        trueEndDate = new Date(`${endYear}-${endMonth}-${endDay}T23:59:59.999Z`);
+      }
+
+      const mealsInSystem = await Meal.find({ hostelId: userHostelId }).lean();
+
+      targetMeals = mealsInSystem.filter(meal => {
+        const [d, m, y] = meal.date.split("/");
+        const currentMealDate = new Date(`${y}-${m}-${d}T00:00:00.000Z`);
+        
+        if (trueEndDate) {
+          return currentMealDate >= trueStartDate && currentMealDate <= trueEndDate;
+        }
+        // If no end date, return everything from start date forward
+        return currentMealDate >= trueStartDate;
+      });
+
+    } else {
+      // ➔ OPTION B: AUTOMATIC CURRENT CYCLE DETECTOR (Fallback to Active 1-60 Meal Block)
+      const now = new Date();
+      const todayStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+
+      let referenceMeal = await Meal.findOne({ hostelId: userHostelId, date: todayStr }).lean();
+
+      // If today has no document, find the most recently created historical document entry
+      if (!referenceMeal) {
+        referenceMeal = await Meal.findOne({ hostelId: userHostelId })
+          .sort({ createdAt: -1 })
+          .lean();
+      }
+
+      if (referenceMeal) {
+        const currentNum = parseInt(referenceMeal.morning?.mealsNum || referenceMeal.night?.mealsNum || 1, 10);
+
+        const cycleIndexOffset = (currentNum - 1) % 60; 
+        const cycleStartMealNum = currentNum - cycleIndexOffset; 
+        const cycleEndMealNum = cycleStartMealNum + 59; 
+
+        const mealsInSystem = await Meal.find({ hostelId: userHostelId }).lean();
+
+        targetMeals = mealsInSystem.filter(meal => {
+          const mNumMorning = parseInt(meal.morning?.mealsNum || 0, 10);
+          const mNumNight = parseInt(meal.night?.mealsNum || 0, 10);
+          
+          return (mNumMorning >= cycleStartMealNum && mNumMorning <= cycleEndMealNum) ||
+                 (mNumNight >= cycleStartMealNum && mNumNight <= cycleEndMealNum);
+        });
+      }
+      
+      // Extreme Fallback: If filtered list is still empty, output the latest 30 records
+      if (targetMeals.length === 0) {
+        targetMeals = await Meal.find({ hostelId: userHostelId })
+          .sort({ createdAt: -1 })
+          .limit(30)
+          .lean();
+      }
+    }
+
+    // ➔ Sort sequentially by date
+    targetMeals.sort((a, b) => {
       const [dA, mA, yA] = a.date.split("/").map(Number);
       const [dB, mB, yB] = b.date.split("/").map(Number);
       return new Date(yA, mA - 1, dA) - new Date(yB, mB - 1, dB);
     });
-
-    // 3. Find today's date placeholder index in the timeline array
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-    const todayIndex = allMeals.findIndex(meal => {
-      const [d, m, y] = meal.date.split("/").map(Number);
-      return new Date(y, m - 1, d) >= todayStart;
-    });
-
-    let targetMeals = [];
-
-    if (todayIndex !== -1) {
-      // Show 10 previous meals for editing past entries, and 50 upcoming meals
-      // Totaling a clean, continuous rolling block of 60 meals
-      const startPos = Math.max(0, todayIndex - 10);
-      targetMeals = allMeals.slice(startPos, startPos + 60);
-    } else {
-      // Fallback: If all meals in the system are in the past, return the last 60 entries
-      targetMeals = allMeals.slice(-60);
-    }
 
     return res.status(200).json({
       success: true,
@@ -532,9 +572,10 @@ export const getAllMeals = async (req, res) => {
     });
 
   } catch (error) {
-    return res.status(500).json({ success: false, message: "Error fetching meals: " + error.message });
+    return res.status(500).json({ success: false, message: "Error fetching current cycle meals: " + error.message });
   }
 };
+
 
 export const getWeeklyMeals = async (req, res) => {
   try {

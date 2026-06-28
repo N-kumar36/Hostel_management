@@ -9,7 +9,7 @@ import 'package:intl/intl.dart';
 
 class ApiService {
   // final String baseUrl = "https://hostel-management-3e61.onrender.com/api";
-  // final String baseUrl = "http://192.168.0.23:5000/api";
+  // final String baseUrl = "http://192.168.0.22:5000/api";
   // final String baseUrl = "http://192.168.18.253:5000/api";
   final String baseUrl = "https://hostel-management-rouge-six.vercel.app/api";
 
@@ -45,11 +45,9 @@ class ApiService {
 
   // ========================= AUTHENTICATION ======================== //
 
-  // ser profile pic
-  // Add this to your ApiService class
+  // Update profile picture
   Future<Map<String, dynamic>> updateProfilePic(File imageFile) async {
     try {
-      // URL matches the backend route we created earlier
       var request = http.MultipartRequest(
         'PUT',
         Uri.parse('$baseUrl/user/update-profile-pic'),
@@ -113,8 +111,6 @@ class ApiService {
     }
   }
 
-
-
   Future<Map<String, dynamic>?> getProfile() async {
     try {
       final response = await http.get(
@@ -130,16 +126,13 @@ class ApiService {
             ? data['user']
             : data;
 
-        // ✨ NEW: Check for the refreshed authentication token from the backend
+        // Check for the refreshed authentication token from the backend
         if (data.containsKey('token') && data['token'] != null) {
           final String refreshedToken = data['token'].toString();
 
           SharedPreferences prefs = await SharedPreferences.getInstance();
-          // Overwrite your existing authorization token key with the new value
           await prefs.setString("token", refreshedToken);
-          debugPrint(
-            "✅ Auth token refreshed and saved successfully on startup.",
-          );
+          debugPrint("Auth token refreshed and saved successfully on startup.");
         }
 
         // Cache the local user details object
@@ -156,6 +149,27 @@ class ApiService {
       debugPrint("Get Profile Exception: $e");
     }
     return null;
+  }
+
+  // update profile
+  Future<Map<String, dynamic>> updateProfile(
+    Map<String, dynamic> userData,
+  ) async {
+    print("update profile data $userData");
+    try {
+      final response = await http.put(
+        Uri.parse('$baseUrl/auth/profile'),
+        headers: await _getHeaders(),
+        body: jsonEncode(userData),
+      );
+      return jsonDecode(response.body);
+    } catch (e) {
+      print("Update Profile Error: $e");
+      return {
+        "success": false,
+        "message": "Network error occurred. Please try again.",
+      };
+    }
   }
 
   Future<Map<String, dynamic>> sendOtp(String email, String phone) async {
@@ -213,10 +227,10 @@ class ApiService {
         headers: {"Content-Type": "application/json"},
         body: jsonEncode(userData),
       );
-      // Return the decoded JSON body which contains {success, message}
       return jsonDecode(response.body);
     } catch (e) {
       print("Register Error: $e");
+
       return {
         "success": false,
         "message": "Network error occurred. Please try again.",
@@ -237,6 +251,45 @@ class ApiService {
         throw Exception('Failed to load history');
       }
     } catch (e) {
+      rethrow;
+    }
+  }
+
+  // get meal cycle date bounds
+  Future<Map<String, dynamic>> getMealCycleDateBounds() async {
+    try {
+      final response = await http.get(
+        Uri.parse("$baseUrl/finance/meal-cycle-bounds"),
+        headers: await _getHeaders(),
+      );
+      return json.decode(response.body);
+    } catch (e) {
+      debugPrint("API Error reading system cycle definitions: $e");
+      rethrow;
+    }
+  }
+
+  // get finanace
+
+  Future<Map<String, dynamic>> getFinanceAuditReport(
+    String startDate,
+    String endDate,
+  ) async {
+    try {
+      final response = await http.get(
+        Uri.parse(
+          "$baseUrl/finance/audit-statement?startDateStr=$startDate&endDateStr=$endDate",
+        ),
+        headers: await _getHeaders(),
+      );
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        return json.decode(response.body);
+      }
+    } catch (e) {
+      debugPrint("Finance Audit Report Error: $e");
       rethrow;
     }
   }
@@ -670,11 +723,16 @@ class ApiService {
           )
           .timeout(const Duration(seconds: 10));
 
-      if (response.statusCode == 200) {
-        return json.decode(response.body);
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final decodedBody = json.decode(response.body);
+
+        if (decodedBody is Map && decodedBody.containsKey('data')) {
+          return decodedBody['data'] as List<dynamic>;
+        }
+
+        return [];
       }
 
-      // Check for 404 and return an empty list so FutureBuilder doesn't show an error
       if (response.statusCode == 404) {
         return [];
       }
@@ -840,18 +898,39 @@ class ApiService {
   // Edit Meal
 
   // Fetch all planned meals
-  Future<Map<String, dynamic>> getAllMeals() async {
+  Future<Map<String, dynamic>> getAllMeals({
+    String? startDate,
+    String? endDate,
+  }) async {
     try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/meals/all'), // Adjust endpoint as per your backend
-        headers: await _getHeaders(),
-      );
-      if (response.statusCode == 200) {
+      // 1. Build the base URI endpoint context matching your routing path
+      String urlString = '$baseUrl/meals/all';
+
+      // 2. ⚡ Dynamic Query String Append Engine
+      if (startDate != null && endDate != null) {
+        urlString += '?startDateStr=$startDate&endDateStr=$endDate';
+      }
+
+      print("Date $startDate $endDate $urlString");
+
+      final response = await http
+          .get(Uri.parse(urlString), headers: await _getHeaders())
+          .timeout(
+            const Duration(seconds: 10),
+          ); // Safe connection lock protection
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
         return json.decode(response.body);
       } else {
-        throw Exception('Failed to load meals');
+        final decodedError = json.decode(response.body);
+        throw Exception(
+          decodedError['message'] ?? 'Failed to load meals cycle from backend',
+        );
       }
+    } on SocketException {
+      throw const SocketException("No Internet Connection detected");
     } catch (e) {
+      debugPrint("API Service Layer Exception caught inside getAllMeals: $e");
       rethrow;
     }
   }
@@ -864,7 +943,7 @@ class ApiService {
     try {
       print("payload $payload");
       final response = await http.put(
-        Uri.parse('$baseUrl/meals/update/$mealId'), // Adjust endpoint
+        Uri.parse('$baseUrl/meals/update/$mealId'),
         headers: await _getHeaders(),
         body: json.encode(payload),
       );
@@ -909,6 +988,8 @@ class ApiService {
         '$baseUrl/vote/get-votes',
       ).replace(queryParameters: queryParams);
 
+      print("URL ${uri}");
+
       final response = await http.get(uri, headers: await _getHeaders());
 
       if (response.statusCode == 200) {
@@ -951,7 +1032,7 @@ class ApiService {
 
   // ------------------- gguest meal page apis
 
-  /// ✅ FIXED: Aligns route payload signature perfectly with backend structure maps
+  /// FIXED: Aligns route payload signature perfectly with backend structure maps
   Future<Map<String, dynamic>> updateGuestMealStatus(
     Map<String, dynamic> payload,
   ) async {
@@ -985,7 +1066,7 @@ class ApiService {
     }
   }
 
-  /// ✅ FIXED: Hits the global manager aggregation path and returns data map safely
+  /// FIXED: Hits the global manager aggregation path and returns data map safely
   Future<Map<String, dynamic>> getHostelGuestRequests() async {
     try {
       final response = await http.get(
@@ -1016,20 +1097,25 @@ class ApiService {
 
   /// fine management
 
-  // 1. Update the fetch method to accept the month string
-  Future<List<dynamic>> getBillsByMonth(String month) async {
+
+//  Dynamic Meal Cycle Date Boundary Query Method
+  Future<List<dynamic>> getBillsByDateRange({
+    required String startDateStr, 
+    required String endDateStr,
+  }) async {
     try {
-      // Passes the month parameter e.g., ?month=2026-03
+      // Constructs query string parameters: ?startDateStr=DD/MM/YYYY&endDateStr=DD/MM/YYYY
       final response = await http.get(
-        Uri.parse("$baseUrl/fines/pending?month=$month"),
+        Uri.parse("$baseUrl/fines/pending?startDateStr=$startDateStr&endDateStr=$endDateStr"),
         headers: await _getHeaders(),
-      );
+      ).timeout(const Duration(seconds: 10));
+
       if (response.statusCode == 200) {
-        return json.decode(response.body)['data'];
+        return json.decode(response.body)['data'] ?? [];
       }
       return [];
     } catch (e) {
-      debugPrint("Error fetching bills: $e");
+      debugPrint("Error fetching cycle bills: $e");
       return [];
     }
   }
@@ -1127,18 +1213,38 @@ class ApiService {
   }
 
   // get student sumary
-  Future<Map<String, dynamic>> getStudentSummary(String studentOd) async {
+  Future<Map<String, dynamic>> getStudentSummary(
+    String studentId, {
+    String? startDateStr,
+    String? endDateStr,
+  }) async {
+    print("GetSumary date ${startDateStr} ${endDateStr}");
     try {
+      // 1. Base endpoint declaration matching your routing configuration
+      String urlPath = '$baseUrl/managers/Status/$studentId';
+
+      // 2. Dynamically attach operational cycle parameters if they exist
+      if (startDateStr != null && endDateStr != null) {
+        urlPath += '?startDateStr=$startDateStr&endDateStr=$endDateStr';
+      }
+
       final response = await http.get(
-        Uri.parse('$baseUrl/managers/Status/$studentOd'),
-        headers: await _getHeaders(),
+        Uri.parse(urlPath),
+        headers:
+            await _getHeaders(), // Uses your secure authentication headers layout helper
       );
+
       if (response.statusCode == 200) {
         return json.decode(response.body);
       } else {
-        throw Exception('Failed to load history');
+        final errorData = json.decode(response.body);
+        throw Exception(
+          errorData['message'] ??
+              'Failed to load student summary analytics metrics.',
+        );
       }
     } catch (e) {
+      debugPrint("API Execution Error inside getStudentSummary: $e");
       rethrow;
     }
   }
@@ -1247,6 +1353,36 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> compileAllStudentSubscriptions() async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse("$baseUrl/meal-plan/manager/compile-all"),
+            headers: await _getHeaders(),
+          )
+          .timeout(
+            const Duration(seconds: 15),
+          ); // Extended timeout for bulk database operations
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return json.decode(response.body);
+      } else {
+        final decodedError = json.decode(response.body);
+        throw Exception(
+          decodedError['message'] ??
+              'Failed to batch compile student subscriptions',
+        );
+      }
+    } on SocketException {
+      throw const SocketException("No Internet Connection detected");
+    } catch (e) {
+      debugPrint(
+        "API Service Exception caught inside compileAllStudentSubscriptions: $e",
+      );
+      rethrow;
+    }
+  }
+
   // Update Fine/Bill Status (Approve/Reject)
   Future<bool> updateFineStatus(String fineId, String status) async {
     try {
@@ -1312,6 +1448,209 @@ class ApiService {
     } catch (e) {
       debugPrint("Convert Fine Error: $e");
       return false;
+    }
+  }
+
+  //================== Shopping List api for manager=========================//
+  Future<Map<String, dynamic>> getShoppingList() async {
+    try {
+      final response = await http.get(
+        Uri.parse(
+          "$baseUrl/shopping-list",
+        ), // Ensure this matches your backend route
+        headers: await _getHeaders(),
+      );
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        throw Exception("Failed to load shopping list");
+      }
+    } catch (e) {
+      debugPrint("Get Shopping List Error: $e");
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> updateShoppingList(
+    String itemId,
+    Map<String, dynamic> payload,
+  ) async {
+    try {
+      final response = await http.put(
+        Uri.parse("$baseUrl/shopping-list/$itemId"),
+        headers: await _getHeaders(),
+        body: json.encode(payload),
+      );
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        final errorData = json.decode(response.body);
+        throw Exception(errorData['message'] ?? "Failed to update item");
+      }
+    } catch (e) {
+      debugPrint("Update Shopping List Error: $e");
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> addShoppingListItem(
+    Map<String, dynamic> payload,
+  ) async {
+    try {
+      final response = await http.post(
+        Uri.parse("$baseUrl/shopping-list"),
+        headers: await _getHeaders(),
+        body: json.encode(payload),
+      );
+      if (response.statusCode == 201 || response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        final errorData = json.decode(response.body);
+        throw Exception(errorData['message'] ?? "Failed to add item");
+      }
+    } catch (e) {
+      debugPrint("Add Shopping List Item Error: $e");
+      rethrow;
+    }
+  }
+
+  Future<bool> deleteShoppingListItem(String itemId) async {
+    try {
+      final response = await http.delete(
+        Uri.parse("$baseUrl/shopping-list/$itemId"),
+        headers: await _getHeaders(),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint("Delete Shopping List Item Error: $e");
+      return false;
+    }
+  }
+
+  //============= admin APIs================//
+  Future<Map<String, dynamic>> updateHostelStudentProfile(
+    String studentId,
+    Map<String, dynamic> updatedPayload,
+  ) async {
+    try {
+      final response = await http.put(
+        Uri.parse(
+          "$baseUrl/user/profile/$studentId",
+        ), // Appended target studentId to path
+        headers: await _getHeaders(),
+        body: json.encode(updatedPayload),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        // Corrected json.decoder to json.decode
+        final Map<String, dynamic> decodedData = json.decode(response.body);
+        return decodedData;
+      } else {
+        // Handle non-200 responses safely
+        final errorBody = json.decode(response.body);
+        throw Exception(
+          errorBody['message'] ?? "Server error: ${response.statusCode}",
+        );
+      }
+    } catch (e) {
+      debugPrint("updateHostelStudentProfile Error: $e");
+      // Rethrow to let your UI catch-block handle it visually
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> deleteHostelUser(String studentId) async {
+    try {
+      final response = await http.delete(
+        Uri.parse("$baseUrl/user/profile/$studentId"),
+        headers:
+            await _getHeaders(), // Added authentication headers if required by backend
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final Map<String, dynamic> decodedData = json.decode(response.body);
+        return decodedData;
+      } else {
+        // Attempt to parse server-side failure message
+        final errorBody = json.decode(response.body);
+        throw Exception(
+          errorBody['message'] ??
+              "Failed to delete user: ${response.statusCode}",
+        );
+      }
+    } catch (e) {
+      debugPrint("deleteHostelUser Error: $e");
+      // Rethrow lets your UI showDialog show the exception error message accurately
+      rethrow;
+    }
+  }
+
+  /// Fetches a complete student profile document from the backend by ID
+  Future<Map<String, dynamic>> getStudentById(String studentId) async {
+    print("Student Id ${studentId}");
+    try {
+      final response = await http.get(
+        Uri.parse(
+          "$baseUrl/user/$studentId",
+        ), // Adjust route path if your backend uses /user/:id or /hostel/student/:id
+        headers: await _getHeaders(),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final Map<String, dynamic> decodedData = json.decode(response.body);
+        return decodedData;
+      } else {
+        final errorBody = json.decode(response.body);
+        throw Exception(
+          errorBody['message'] ??
+              "Failed to fetch student profile: ${response.statusCode}",
+        );
+      }
+    } catch (e) {
+      debugPrint("getStudentById Error: $e");
+      rethrow;
+    }
+  }
+
+  /// Fetches all registered fines for a specific student by ID (Manager panel context)
+  Future<Map<String, dynamic>> getStudentFines(String studentId) async {
+    try {
+      final response = await http.get(
+        Uri.parse(
+          "$baseUrl/fines/$studentId",
+        ), // Adjust route path to match your backend fine schema query route
+        headers: await _getHeaders(),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final Map<String, dynamic> decodedData = json.decode(response.body);
+        return decodedData;
+      } else {
+        final errorBody = json.decode(response.body);
+        throw Exception(
+          errorBody['message'] ??
+              "Failed to fetch student fines: ${response.statusCode}",
+        );
+      }
+    } catch (e) {
+      debugPrint("getStudentFines Error: $e");
+      rethrow;
+    }
+  }
+
+  Future<List<dynamic>?> getAllStudentsMnager() async {
+    try {
+      final responce = await http.get(
+        Uri.parse("$baseUrl/managers/getallStudent"),
+        headers: await _getHeaders(),
+      );
+      if (responce.statusCode == 200 || responce.statusCode == 201) {
+        return json.decode(responce.body)['data'];
+      }
+      return null;
+    } catch (e) {
+      debugPrint("GetAllStudent Error: $e");
+      return null;
     }
   }
 }

@@ -3,7 +3,7 @@ import ManagerAssignment from "../models/ManagerAssignment.js";
 export const checkPermission = (requiredPermission) => {
   return async (req, res, next) => {
     try {
-      // 1. ✨ Safe Admin Check FIRST (saves a database query if user is already an admin)
+      // 1.  Safe Admin Check FIRST (saves a database query if user is already an admin)
       // Using optional chaining (?.) prevents crashes if req.user or req.user.roles is undefined.
       // Also checking both req.user.roles array and a direct req.user.role string just to be safe.
       const isAdmin = req.user?.roles?.includes("admin") || req.user?.role === "admin";

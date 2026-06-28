@@ -51,4 +51,5 @@
             <data android:mimeType="image/*" />
         </intent>
     </queries>
+
 </manifest>

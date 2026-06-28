@@ -100,11 +100,11 @@ export const registerUser = async (req, res) => {
 
     // Determine Role and Approval Status
     let role = "student";
-    let pendingStatus = "pending";
+    let userStatus = "pending";
 
     if (userCountInHostel <= 1) { // If no users or only 1 user exists, make this user a manager
-      role = "manager";
-      pendingStatus = "approve"; // First user is auto-approved
+      role = "admin";
+      userStatus = "approve"; // First user is auto-approved
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -120,11 +120,11 @@ export const registerUser = async (req, res) => {
       year,
       password: hashedPassword,
       role: role,
-      pending: pendingStatus
+      status: userStatus
     });
 
-    // 5. IF FIRST USER, ASSIGN MANAGER PERMISSIONS AUTOMATICALLY
-    if (role === "manager") {
+    // 5. IF FIRST USER, ASSIGN ADMIN PERMISSIONS AUTOMATICALLY
+    if (role === "admin") {
       await ManagerAssignment.create({
         hostelId: hostelId,
         userId: user._id,
@@ -135,119 +135,75 @@ export const registerUser = async (req, res) => {
         },
         isActive: true
       });
-      console.log(` First user ${user.name} registered as Manager with full rights.`);
+      console.log(` First user ${user.name} registered as Admin with full rights.`);
     }
 
     await Otp.deleteOne({ email: email.toLowerCase() });
 
     res.status(201).json({
       success: true,
-      user: { id: user._id, name: user.name, role: user.role, status: user.pending }
+      user: { id: user._id, name: user.name, role: user.role, status: user.status }
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 };
-
-// export const registerUser = async (req, res) => {
-//   // 1. EXTRACTION: Ensure names match the Flutter keys exactly
-//   const {
-//     name,
-//     email,
-//     password,
-//     phone,
-//     otp,
-//     hostelId,
-//     regNum,       // Must match 'regNum' from Flutter
-//     department,   // Must match 'department' from Flutter
-//     year          // Must match 'year' from Flutter
-//   } = req.body;
-
-//   console.log("Received registration data:", req.body); // Debug log to check incoming data
-
-//   try {
-//     // 2. OTP VALIDATION
-//     const otpRecord = await Otp.findOne({ email: email.toLowerCase() });
-//     if (!otpRecord || otpRecord.otp !== otp) {
-//       return res.status(400).json({ success: false, message: "Invalid OTP" });
-//     }
-
-//     // 3. DUPLICATE CHECK
-//     const existingUser = await User.findOne({
-//       $or: [{ email: email.toLowerCase() }, { regNum }]
-//     });
-
-//     console.log(existingUser);
-
-//     if (existingUser) {
-//       const conflictField = existingUser.email === email.toLowerCase() ? "Email" : "Registration Number";
-//       return res.status(400).json({
-//         success: false,
-//         message: `${conflictField} is already registered.`
-//       });
-//     }
-
-//     const hashedPassword = await bcrypt.hash(password, 10);
-
-//     // 4. CREATION: Pass the new academic fields
-//     const user = await User.create({
-//       name,
-//       email: email.toLowerCase(),
-//       phone,
-//       hostelId,
-//       regNum,
-//       department,
-//       year,
-//       password: hashedPassword,
-//     });
-
-//     await Otp.deleteOne({ email: email.toLowerCase() });
-
-//     res.status(201).json({
-//       success: true,
-//       user: { id: user._id, name: user.name, role: user.role }
-//     });
-//   } catch (err) {
-//     res.status(500).json({ success: false, message: err.message });
-//   }
-// };
 
 
 export const loginUser = async (req, res) => {
   const { email, password } = req.body;
 
-  console.log("Login was called", req.body);
-
   try {
-    // 1. Find the user by email
-    const user = await User.findOne({ email: email.toLowerCase() });
+    const user = await User.findOne({
+      email: email.toLowerCase(),
+    }).populate("hostelId", "name");
 
-    // 2. Check if the user exists (Email check)
     if (!user) {
-      return res.status(401).json({ success: false, message: "Invalid email" });
+      return res.status(401).json({
+        success: false,
+        message: "Invalid email",
+      });
     }
 
-    // 3. Check if the password matches (Password check)
-    const isPasswordValid = await bcrypt.compare(password, user.password);
+    const isPasswordValid = await bcrypt.compare(
+      password,
+      user.password
+    );
 
     if (!isPasswordValid) {
-      return res.status(401).json({ success: false, message: "Invalid password" });
+      return res.status(401).json({
+        success: false,
+        message: "Invalid password",
+      });
     }
 
-    // 4. If both are correct, generate token and return success
+    const responseUser = {
+      ...user.toObject(),
+      hostelName: user.hostelId?.name,
+    };
+
+    delete responseUser.hostelId;
+
     res.json({
       success: true,
-      user,
+      user: responseUser,
       token: generateToken({
         id: user._id,
-        hostelId: user.hostelId,
+        hostelId: user.hostelId?._id,
         email: user.email,
       }),
     });
+
+
+
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
 };
+
 
 
 
@@ -256,33 +212,95 @@ export const getProfile = async (req, res) => {
 
   try {
     if (!req.user || !req.user.id) {
-      return res.status(401).json({ success: false, message: "Not authorized, no user data" });
+      return res.status(401).json({
+        success: false,
+        message: "Not authorized, no user data"
+      });
     }
 
-    const user = await User.findById(req.user.id).select("-password");
+    const user = await User.findById(req.user.id)
+      .populate("hostelId", "name")
+      .select("-password");
 
     if (!user) {
-      return res.status(404).json({ success: false, message: "User not found in database" });
+      return res.status(404).json({
+        success: false,
+        message: "User not found in database"
+      });
     }
 
-    // ✨ NEW: Generate a fresh token on profile check to extend session lifespan
     const newToken = generateToken({
       id: user._id,
-      hostelId: user.hostelId,
+      hostelId: user.hostelId?._id,
       email: user.email,
     });
 
-    // Send the fresh token along with the user data object
+    const responseUser = {
+      ...user.toObject(),
+      hostelName: user.hostelId?.name,
+    };
+
+    delete responseUser.hostelId;
+
     res.json({
       success: true,
-      user,
-      token: newToken
+      user: responseUser,
+      token: newToken,
     });
 
   } catch (err) {
-    res.status(500).json({ success: false, message: "Server Error: " + err.message });
+    res.status(500).json({
+      success: false,
+      message: "Server Error: " + err.message
+    });
   }
 };
+
+
+export const updateProfile = async (req, res) => {
+  const { name, phone, department } = req.body;
+
+
+
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: "Not authorized, no user data"
+      });
+    }
+
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found in database"
+      });
+    }
+
+    user.name = name || user.name;
+    user.phone = phone || user.phone;
+    user.department = department || user.department;
+    await user.save();
+
+    const responseUser = {
+      ...user.toObject(),
+    };
+    delete responseUser.password;
+
+    res.json({
+      success: true,
+      user: responseUser,
+    });
+
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: "Server Error: " + err.message
+    });
+  }
+}
 
 
 export const OtpForgetPass = async (req, res) => {
@@ -396,7 +414,6 @@ export const getAllStudents = async (req, res) => {
 
     const students = await User.find({
       hostelId: hostelId,
-      role: 'student'
     }).select("name email photoURL roomNumber"); // Only return necessary fields
 
     res.status(200).json({

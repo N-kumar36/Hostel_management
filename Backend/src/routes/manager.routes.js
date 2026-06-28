@@ -3,6 +3,7 @@ import { protect } from "../middleware/authMiddleware.js";
 import {
     assignManager,
     getCurrentManager,
+    getAllStudent,
     pendingStudent,
     pendingApprove,
     pendingReject,
@@ -22,7 +23,7 @@ router.post("/assign", protect, assignManager);
 router.get("/current", protect, getCurrentManager);
 
 // manager manage
-
+router.get("/getallStudent", protect, getAllStudent)
 router.get("/pending", protect, pendingStudent);
 router.get("/dashboard-counts", protect, getDashboardCounts);
 router.get("/pending", protect, pendingStudent);

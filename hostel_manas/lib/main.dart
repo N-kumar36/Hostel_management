@@ -1,7 +1,7 @@
-import 'package:HostelMess/screens/home_page.dart';
+import 'package:HostelMess/views/dashbord/home_page.dart';
 import 'package:HostelMess/services/dataconnvater.dart';
 import 'package:flutter/material.dart';
-import 'screens/login_screens/login_page.dart';
+import 'views/auth/login/login_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() => runApp(const HostelApp());

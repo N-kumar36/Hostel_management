@@ -1,33 +1,26 @@
-// src/controllers/user.controller.js
-import mongoose from "mongoose"; // Fixed: Added this line
+import mongoose from "mongoose";
 import User from '../models/User.js';
 import Fine from '../models/fine.model.js';
 import StudentSubscription from "../models/StudentSubscription.js";
 import Meal from "../models/Meal.js";
 
-
-
-
-
 import { ProfileToFirebase } from "../ConfigMultar/multar.control.js";
 
 export const updateProfilePicture = async (req, res) => {
   try {
-    // req.file is populated by the handleImageUpload middleware
+
     if (!req.file) {
       return res.status(400).json({ success: false, message: "No image provided" });
     }
 
     console.log("Uploading profile pic for user ID:", req.user.id);
 
-    // 1. Upload to Firebase
     const imageUrl = await ProfileToFirebase(req.file);
 
-    // 2. Update MongoDB - Using 'photoURL' as per your userSchema
     const updatedUser = await User.findByIdAndUpdate(
       req.user.id,
       { photoURL: imageUrl },
-      { new: true, runValidators: true } // 'new: true' returns the updated doc
+      { new: true, runValidators: true }
     ).select("-password");
 
     if (!updatedUser) {
@@ -46,15 +39,34 @@ export const updateProfilePicture = async (req, res) => {
 };
 
 
+// admin APIs
+export const getProfile = async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log("GetProfile manager requested ID:", id);
 
+    if (!id) {
+      return res.status(400).json({ success: false, message: "Id not Provided" });
+    }
 
+    const findUser = await User.findById(id).select("-password").populate("hostelId");
 
+    if (!findUser) {
+      return res.status(404).json({ success: false, message: "User Not found" });
+    }
 
+    return res.status(200).json({
+      success: true,
+      message: "Profile Found Successfully",
+      data: findUser
+    });
 
-/**
- * @desc    Get payment history tracing guest meals and fines inside the Meal 1 to 60 date block
- * @route   GET /api/user/all-payment-history
- */
+  } catch (error) {
+    console.error("GetProfile function error: " + error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 export const getStudentPaymentHistory = async (req, res) => {
   try {
     const hostelId = req.user.hostelId;
@@ -63,7 +75,6 @@ export const getStudentPaymentHistory = async (req, res) => {
       return res.status(400).json({ success: false, message: "Hostel ID context reference is missing." });
     }
 
-    // ⚡ OPTIMIZATION 1: Fetch all historical meals once to map chronological execution days
     const allMeals = await Meal.find({ hostelId }).lean();
     allMeals.sort((a, b) => {
       const [dA, mA, yA] = a.date.split("/").map(Number);
@@ -71,9 +82,9 @@ export const getStudentPaymentHistory = async (req, res) => {
       return new Date(yA, mA - 1, dA) - new Date(yB, mB - 1, dB);
     });
 
-    // ⚡ OPTIMIZATION 2: Build a map tracking the date string -> absolute meal index sequence
-    const mealTimelineMap = {}; // Example: {"27/5/2026_morning": 12}
-    const sequenceToDateMap = {}; // Example: {12: DateObject}
+
+    const mealTimelineMap = {};
+    const sequenceToDateMap = {};
     let globalMealCounter = 0;
 
     for (let meal of allMeals) {
@@ -179,7 +190,6 @@ export const getStudentPaymentHistory = async (req, res) => {
           if (cycleStartDate && cycleEndDate) {
             const fineTimestamp = new Date(fineDoc.date);
 
-            // ✨ CRITICAL VERIFICATION: Does the extra fine fall strictly within the 1-60 meal lifespan duration?
             if (fineTimestamp.getTime() >= cycleStartDate.getTime() && fineTimestamp.getTime() <= cycleEndDate.getTime()) {
               fineDoc.belongsToCurrentCycle = true;
               fineDoc.cycleDescription = "Current Mess Extra Fine (Within Meal 1-60 lifespan)";
@@ -189,9 +199,8 @@ export const getStudentPaymentHistory = async (req, res) => {
         }
       }
 
-      // If it falls outside the active 1-60 package window range execution timeline:
       if (fineStatus === 'success') {
-        fineDoc.skipRecord = true; // Drop past cycles if they are already settled/paid
+        fineDoc.skipRecord = true;
         return fineDoc;
       }
 
@@ -213,3 +222,93 @@ export const getStudentPaymentHistory = async (req, res) => {
     return res.status(500).json({ success: false, message: "Internal Server Error: " + error.message });
   }
 };
+
+
+export const updateProfile = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const requesterId = req.user._id; // Extracted safely from your 'protect' middleware layer
+    const hostelId = req.user.hostelId;
+
+    const { name, email, phone, regNum, roomNumber, department, year, role, status } = req.body;
+
+    //  Fetch the target user's current record first to verify their existing privileges
+    const targetUser = await User.findById(id);
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    //  GUARDRAIL 1: Prevent users from modifying their own role parameters
+    if (id.toString() === requesterId.toString()) {
+      if (role && role !== targetUser.role) {
+        return res.status(403).json({
+          success: false,
+          message: "Security Violation: You cannot alter your own operational authorization role."
+        });
+      }
+    }
+
+    //  GUARDRAIL 2: Minimum Admin Count Enforcement Requirement Check
+    const isTargetCurrentlyAdmin = targetUser.role?.toLowerCase() === 'admin';
+    const isChangingAdminRoleOrStatus = (role && role.toLowerCase() !== 'admin') || (status && status !== 'active');
+
+    if (isTargetCurrentlyAdmin && isChangingAdminRoleOrStatus) {
+      // Count how many alternative active admins exist inside this specific hostel
+      const activeAdminsCount = await User.countDocuments({
+        hostelId: hostelId,
+        role: { $regex: /^admin$/i }, // Case-insensitive matching string parameter match
+        status: "active"
+      });
+
+      // If this user is the last remaining admin, reject the update operation
+      if (activeAdminsCount <= 1) {
+        return res.status(422).json({
+          success: false,
+          message: "Action Blocked: A hostel must retain at least 1 active Admin on record. Please assign another Admin before removing this one."
+        });
+      }
+    }
+
+    //  Commit Schema Save Changes safely since checks passed successfully
+    const updatedUser = await User.findByIdAndUpdate(
+      id,
+      { name, email, regNum, phone, roomNumber, department, year, role, status },
+      { new: true, runValidators: true }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Profile schema properties committed successfully",
+      data: updatedUser
+    });
+
+  } catch (error) {
+    console.error("Profile Update Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error: " + error.message
+    });
+  }
+};
+
+export const deleteProfile = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid user ID format" });
+    }
+
+    const deletedUser = await User.findByIdAndDelete(id);
+
+    if (!deletedUser) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    return res.status(200).json({ success: true, message: "Profile deleted successfully", data: deletedUser });
+
+  } catch (error) {
+    console.error("Profile Delete Error:", error);
+    return res.status(500).json({ success: false, message: "Internal Server Error:" + error.message });
+  }
+}

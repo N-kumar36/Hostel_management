@@ -10,6 +10,7 @@ import StudentSubscription from "../models/StudentSubscription.js"; // Ensure pa
 import mongoose from "mongoose";
 
 
+
 /**
  * @desc    Assign a user as a hostel manager
  * @route   POST /api/manager/assign
@@ -86,6 +87,34 @@ export const getCurrentManager = async (req, res) => {
   }
 };
 
+
+
+export const getAllStudent = async (req, res) => {
+  try {
+    const hostelId = req.user.hostelId;
+
+    const activeStudents = await User.find({
+      hostelId: hostelId,
+      status: { $in: ["active", "approve"] }
+    })
+      .select("name email regNum department year photoURL role status") // Selects only the fields required by your Flutter page
+      .sort({ name: 1 }); // Alphabetical sort order configuration
+
+    return res.status(200).json({
+      success: true,
+      count: activeStudents.length,
+      data: activeStudents
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Internal server side database query error fetching active hostel registry list.",
+      error: error.message
+    });
+  }
+};
+
 /**
  * @desc    Get a list of all students waiting for hostel registration approvals
  * @route   GET /api/manager/pending-students
@@ -94,17 +123,31 @@ export const pendingStudent = async (req, res) => {
   try {
     const students = await User.find({
       hostelId: req.user.hostelId,
-      pending: "pending"
-    }).select("-password");
+      status: { $in: ["pending", "unverified"] }
+    })
+      .select("-password")
+      .sort({ createdAt: -1 });
 
     if (!students || students.length === 0) {
-      return res.status(404).json({ message: "No pending students found for this hostel" });
+      return res.status(404).json({
+        success: false,
+        message: "No pending or unverified students found for this hostel"
+      });
     }
 
-    return res.status(200).json(students);
+    // Standardized format wrapper matching your app framework signatures
+    return res.status(200).json({
+      success: true,
+      count: students.length,
+      data: students
+    });
+
   } catch (error) {
-    console.error("Fail to fetch:", error);
-    return res.status(500).json({ message: "Server error while fetching students" });
+    console.error("Fail to fetch pending registry users:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error while compiling pending application coordinates: " + error.message
+    });
   }
 };
 
@@ -123,7 +166,7 @@ export const pendingApprove = async (req, res) => {
       return res.status(403).json({ message: "Unauthorized: This student belongs to another hostel" });
     }
 
-    student.pending = "approve";
+    student.status = "active";
     await student.save();
 
     return res.status(200).json({
@@ -172,8 +215,8 @@ export const getAllHostelStudent = async (req, res) => {
   try {
     const student = await User.find({
       hostelId: req.user.hostelId,
-      pending: "approve"
-    }).select("-password");
+      // status: "active"
+    }).select("_id name email regNum department year photoURL");
 
     if (!student || student.length === 0) {
       return res.status(404).json({ message: "Hostel Student not found" });
@@ -186,78 +229,160 @@ export const getAllHostelStudent = async (req, res) => {
   }
 };
 
-/**
- * @desc    ✨ FIXED: Gathers summary counts directly from the embedded arrays in the Meal documents
- * @route   GET /api/manager/student-summary/:studentId
- */
 
 
 
 export const getStudentSummary = async (req, res) => {
-  const { studentId } = req.params;
-  const hostelId = req.user.hostelId;
-
   try {
-    // 1. Fetch active subscription data directly from database
-    const activeSubscription = await StudentSubscription.findOne({
-      studentId,
-      hostelId,
-      status: "active"
-    }).lean();
+    const { studentId } = req.params;
+    const { startDateStr, endDateStr } = req.query;
 
-    // 2. Read all daily meals configured under this manager's hostel scope
-    const meals = await Meal.find({ hostelId }).lean();
-
-    let studentOwnVotes = 0;
-    let totalServed = 0;
-    let totalGuestVotes = 0;
-
-    for (const meal of meals) {
-      ['morning', 'night'].forEach(slotKey => {
-        const slot = meal[slotKey];
-        if (!slot) return;
-
-        const personalVote = (slot.studentVotes || []).find(v => v.userId.toString() === studentId);
-        if (personalVote) {
-          studentOwnVotes++;
-          if (personalVote.isServed) totalServed++;
-        }
-
-        const studentGuests = (slot.guestRequests || []).filter(
-          g => g.studentId.toString() === studentId && g.status === "approved"
-        );
-        totalGuestVotes += studentGuests.reduce((sum, g) => sum + g.guestCount, 0);
+    if (!startDateStr || !endDateStr) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing parameter criteria boundaries (startDateStr and endDateStr required).",
       });
     }
 
-    const totalVotes = studentOwnVotes + totalGuestVotes;
+    // 1. Convert dynamic text timestamps (DD/MM/YYYY) into native UTC bounds
+    const [startDay, startMonth, startYear] = startDateStr.split("/");
+    const [endDay, endMonth, endYear] = endDateStr.split("/");
 
-    // 3. Collect billing analytics from fines collection
-    const fines = await Fine.find({ studentId }).lean();
+    const trueStartDate = new Date(`${startYear}-${startMonth}-${startDay}T00:00:00.000Z`);
+    const trueEndDate = new Date(`${endYear}-${endMonth}-${endDay}T23:59:59.999Z`);
 
-    const pendingFines = fines
-      .filter(f => f.status === 'pending')
+    // 2. Fetch Subscription State data block
+    const activeSubscription = await StudentSubscription.findOne({
+      studentId: studentId,
+      createdAt: { $gte: trueStartDate, $lte: trueEndDate }
+    });
+
+    // 3. Fetch Payments & Fines History Data Block
+    const finesList = await Fine.find({
+      studentId: studentId,
+      date: { $gte: trueStartDate, $lte: trueEndDate }
+    }).sort({ date: -1 });
+
+    const pendingFinesSum = finesList
+      .filter(f => f.status === "pending" || f.status === "processing")
       .reduce((sum, f) => sum + (f.amount || 0), 0);
 
-    return res.json({
+    const finesPaymentHistory = finesList.map(f => ({
+      _id: f._id,
+      title: f.title || "Mess Bill Charge",
+      amount: f.amount || 0,
+      status: f.status,
+      paymentScreenshot: f.paymentScreenshot || null,
+      paymentMethod: f.paymentMethod || "Offline",
+      date: f.date
+    }));
+
+    // 4.  OPTIMIZATION: Filter records and populate both slots' ServedBy path with user names
+    const targetMeals = await Meal.find({ hostelId: req.user.hostelId })
+      .sort({ _id: -1 })
+      .limit(90)
+      .populate("morning.studentVotes.ServedBy", "name")
+      .populate("night.studentVotes.ServedBy", "name");
+
+    let studentOwnVotes = 0;
+    let totalGuestVotes = 0;
+    let totalServed = 0;
+    const votedMealsHistory = [];
+
+    targetMeals.forEach(meal => {
+      const [d, m, y] = meal.date.split("/");
+      const currentMealDate = new Date(`${y}-${m}-${d}T00:00:00.000Z`);
+
+      // Skip current entry if it falls completely outside our cycle timeline
+      if (currentMealDate < trueStartDate || currentMealDate > trueEndDate) return;
+
+      ["morning", "night"].forEach(slot => {
+        if (meal[slot]) {
+          const slotData = meal[slot];
+
+          // Look for matching user vote footprint inside this slot block
+          const userVote = slotData.studentVotes ? slotData.studentVotes.find(
+            vote => vote.userId && vote.userId.toString() === studentId
+          ) : null;
+
+          // Check the separate guestRequests sub-schema collection for true guest tallies
+          const approvedGuestRequest = slotData.guestRequests ? slotData.guestRequests.find(
+            g => g.studentId && g.studentId.toString() === studentId && g.status === "approved"
+          ) : null;
+
+          const guestCount = approvedGuestRequest ? (approvedGuestRequest.guestCount || 0) : 0;
+
+          // Safely extract the populated name string or fallback to "N/A"
+          const servedByName = userVote && userVote.ServedBy ? (userVote.ServedBy.name || "Unknown") : "N/A";
+
+          if (userVote) {
+            studentOwnVotes++;
+            if (userVote.isServed) totalServed++;
+            totalGuestVotes += guestCount;
+
+            votedMealsHistory.push({
+              date: meal.date,
+              mealsNum: slotData.mealsNum || "0",
+              manu: slotData.manu || "N/A", // From the top level of the slot configuration wrapper
+              itemPreference: userVote.itemPreference || "regular",
+              ServedBy: servedByName,
+              slot: slot,
+              voted: true,
+              isServed: userVote.isServed,
+              guestCount: guestCount
+            });
+          } else {
+            // Unvoted day trace elements inside cycle timeline boundaries
+            votedMealsHistory.push({
+              date: meal.date,
+              mealsNum: slotData.mealsNum || "0",
+              manu: slotData.manu || "N/A",
+              itemPreference: "N/A", // No preferences exist since they didn't place a vote
+              ServedBy: "N/A",
+              slot: slot,
+              voted: false,
+              isServed: false,
+              guestCount: guestCount
+            });
+          }
+        }
+      });
+    });
+
+
+
+
+    // SORT ARRANGEMENT: Orders chronologically by absolute Meal Number (1, 2, 3...)
+    votedMealsHistory.sort((a, b) => {
+      const numA = parseInt(a.mealsNum, 10) || 0;
+      const numB = parseInt(b.mealsNum, 10) || 0;
+
+      // Sorts in Ascending order (Meal 1, Meal 2, Meal 3 at the bottom)
+      return numA - numB;
+    });
+
+
+    // 5. Send optimized payload response
+    return res.status(200).json({
       success: true,
-      totalVotes,
-      totalServed,
+      activeSubscription,
       studentOwnVotes,
       totalGuestVotes,
-      pendingFines,
-      activeSubscription // ✨ CRITICAL: Return the schema keys cleanly back to Flutter!
+      totalServed,
+      pendingFines: pendingFinesSum,
+      votedMealsHistory,
+      finesPaymentHistory
     });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: err.message });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error generating student cycle statistics framework.",
+      error: error.message
+    });
   }
 };
 
-
-/**
- * @desc    Fetch optimized summary action counters for the manager's dashboard panel
- * @route   GET /api/dashboard/counts
- */
 export const getDashboardCounts = async (req, res) => {
   try {
     const hostelId = req.user.hostelId;
@@ -274,7 +399,7 @@ export const getDashboardCounts = async (req, res) => {
       status: "Pending"
     });
 
-    // 3. ✨ NEW: Count unresolved pending fines
+    // 3.  NEW: Count unresolved pending fines
     const pendingFines = await Fine.countDocuments({
       hostelId,
       status: "pending" // Matches 'pending' from your schema enum
@@ -326,7 +451,7 @@ export const getDashboardCounts = async (req, res) => {
       pendingStudents,
       pendingGuests,
       pendingComplaints,
-      pendingFines // ✨ Sent directly to your frontend panel state
+      pendingFines //  Sent directly to your frontend panel state
     });
 
   } catch (error) {
@@ -390,7 +515,7 @@ export const saveSattingData = async (req, res) => {
 };
 
 /**
- * @desc    ✨ FIXED: Returns settings directly at the root data level without double data wrappers
+ * @desc     FIXED: Returns settings directly at the root data level without double data wrappers
  * @route   GET /api/manager/settings
  */
 export const getSattingData = async (req, res) => {

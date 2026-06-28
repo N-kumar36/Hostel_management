@@ -1,6 +1,6 @@
 import express from 'express';
 // IMPORTANT: Added .js extension for ES Modules
-import { loginUser, registerUser, sendOTP, getProfile, forgetPassword, OtpForgetPass, getAllStudents } from '../controllers/auth.controller.js';
+import { loginUser, registerUser, sendOTP, getProfile, updateProfile, forgetPassword, OtpForgetPass, getAllStudents } from '../controllers/auth.controller.js';
 import { protect } from '../middleware/authMiddleware.js';
 import { registerValidation, loginValidation, forgetValidation, otpValidation } from '../validations/authValidation.js';
 import { validate } from '../validations/validate.js';
@@ -11,9 +11,10 @@ const router = express.Router();
 router.post("/send-otp", otpValidation, sendOTP);
 router.post("/register", registerValidation, validate, registerUser);
 router.post("/forget-otp", otpValidation, validate, OtpForgetPass);
-router.put("/forget-pass",forgetValidation, forgetPassword)
+router.put("/forget-pass", forgetValidation, forgetPassword)
 router.post("/login", loginValidation, validate, loginUser);
 router.get("/profile", protect, getProfile);
+router.put("/profile", protect, updateProfile);
 
 // manager
 router.get("/all-students", protect, getAllStudents);

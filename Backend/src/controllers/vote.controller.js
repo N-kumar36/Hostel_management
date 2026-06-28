@@ -250,7 +250,6 @@ export const checkUserVotesForWeek = async (req, res) => {
  * @route   GET /api/meals/admin/get-votes
  */
 
-
 export const getVotesByDateAndSlot = async (req, res) => {
   try {
     const { mealDate, timeSlot } = req.query;
@@ -267,22 +266,24 @@ export const getVotesByDateAndSlot = async (req, res) => {
       return res.status(404).json({ success: false, message: "No meal routine configured for this calendar date." });
     }
 
-    // 2. Identify the active time slot block
     const slotBlock = meal[targetSlot] || { studentVotes: [], guestRequests: [] };
-    const currentMenuItem = slotBlock.manu || "veg"; // Snapshot of the base meal type
+    const currentMenuItem = slotBlock.manu || "veg";
+    
+    //  EXTRACT MEAL NUMBER: Grab the tracking sequence number for this slot (fallback to "0")
+    const dynamicMealNum = slotBlock.mealsNum || "0";
 
-    // 3. Fetch all approved hostellers to ensure walk-ins can be managed
+    // 2. Fetch both "approve" and "active" student users
     const allUsers = await User.find({
       hostelId: meal.hostelId,
-      pending: "approve"
+      status: { $in: ["approve", "active"] }
     }).select("_id name email photoURL").lean();
 
     const formattedData = [];
 
-    // 4. Map Hostel Students (Both Voted and Unvoted Walk-ins)
+    // 3. Map Hostel Students (Both Voted and Unvoted Walk-ins)
     allUsers.forEach(user => {
       const userVote = (slotBlock.studentVotes || []).find(
-        v => v.userId.toString() === user._id.toString()
+        v => v.userId && v.userId.toString() === user._id.toString()
       );
 
       formattedData.push({
@@ -293,8 +294,9 @@ export const getVotesByDateAndSlot = async (req, res) => {
         studentPhoto: user.photoURL || "",
         mealDate: mealDate,
         timeSlot: targetSlot,
-        menuItem: currentMenuItem, //  CRITICAL: Feeds the base menu validation context straight to Flutter
-        choice: userVote ? userVote.itemPreference : "", // Sends original choice token ('regular', 'halal_chicken', etc.)
+        mealsNum: dynamicMealNum, // 🌟 Added absolute tracking meal number string here
+        menuItem: currentMenuItem, 
+        choice: userVote ? userVote.itemPreference : "", 
         votedAt: userVote ? userVote.votedAt : null,
         isServed: userVote ? userVote.isServed : false,
         isGuest: false,
@@ -302,11 +304,10 @@ export const getVotesByDateAndSlot = async (req, res) => {
       });
     });
 
-    // 5. Process Approved Guest Reservation Requests
+    // 4. Process Approved Guest Reservation Requests
     const approvedGuests = (slotBlock.guestRequests || []).filter(g => g.status === "approved");
 
     if (approvedGuests.length > 0) {
-      // Collect Host info cleanly
       const hostIds = approvedGuests.map(g => g.studentId);
       const hostsMap = await User.find({ _id: { $in: hostIds } }).select("_id name").lean();
       const hostProfiles = hostsMap.reduce((acc, h) => ({ ...acc, [h._id.toString()]: h.name }), {});
@@ -315,18 +316,24 @@ export const getVotesByDateAndSlot = async (req, res) => {
         const hostName = hostProfiles[guestGroup.studentId.toString()] || "Unknown Student Host";
 
         for (let index = 1; index <= guestGroup.guestCount; index++) {
+          const guestVoteMarkerId = `${guestGroup._id}_${index}`;
+          const isThisGuestServed = (slotBlock.studentVotes || []).some(
+            v => v.finalAllocatedMenu === guestVoteMarkerId && v.isServed === true
+          );
+
           formattedData.push({
-            studentId: guestGroup.studentId, // Links back to the host student record context block
-            voteId: `${guestGroup._id}_${index}`, // Unique runtime virtual string identifier 
+            studentId: guestGroup.studentId, 
+            voteId: guestVoteMarkerId, 
             studentName: `Guest ${index} (${hostName})`,
             studentEmail: "N/A",
             studentPhoto: "",
             mealDate: mealDate,
             timeSlot: targetSlot,
-            menuItem: currentMenuItem, //  Passes menu context down to the guest item card array
-            choice: guestGroup.guestItemPreference || "regular", //  FIX: Returns what type of plate option the guest voted
+            mealsNum: dynamicMealNum, // 🌟 Added absolute tracking meal number string here
+            menuItem: currentMenuItem, 
+            choice: guestGroup.guestItemPreference || "regular", 
             votedAt: guestGroup.requestedAt,
-            isServed: guestGroup.isServed || false, //  FIX: Read true live service indicators inside the array database records
+            isServed: isThisGuestServed,
             isGuest: true,
             hostName: hostName
           });
@@ -337,6 +344,7 @@ export const getVotesByDateAndSlot = async (req, res) => {
     return res.status(200).json({
       success: true,
       count: formattedData.length,
+      mealsNum: dynamicMealNum, // 🌟 Also available at top-level envelope for easy parsing
       data: formattedData
     });
 
@@ -344,10 +352,6 @@ export const getVotesByDateAndSlot = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
-
-
-
-
 /**
  * @desc    Toggle serve execution statuses, compute package balances or fine parameters natively
  * @route   PUT /api/meals/serve-toggle
@@ -501,100 +505,105 @@ export const getVotesByDateAndSlot = async (req, res) => {
  * @desc    Toggle service status, enforce fast 60-day expiration, and instantly fine if subscription is completed
  * @route   POST /api/manager/toggle-serve
  */
+
 export const toggleServeStatus = async (req, res) => {
   try {
     const { studentId, mealDate, timeSlot } = req.body;
     const currentHostelId = req.user.hostelId;
     const targetSlot = timeSlot.toLowerCase();
+    const activeManagerId = req.user._id; 
+
 
     if (!studentId || !mealDate || !timeSlot) {
       return res.status(400).json({ success: false, message: "Missing required query targeting fields." });
     }
 
-    // 1. Locate targets inside the calendar meal track
-    const meal = await Meal.findOne({ date: mealDate, hostelId: currentHostelId });
-    if (!meal) return res.status(404).json({ success: false, message: "Meal document schedule entry matrix missing." });
+    // 1. O(1) Search Check: Query document matching criteria instantly
+    const mealDocCheck = await Meal.findOne({ date: mealDate, hostelId: currentHostelId }).lean();
+    if (!mealDocCheck) return res.status(404).json({ success: false, message: "Meal document schedule entry matrix missing." });
 
-    const slot = meal[targetSlot];
-    let voteItem = slot.studentVotes.find(v => v.userId.toString() === studentId.toString());
-    let currentMealType = slot.manu;
+    const slotBlock = mealDocCheck[targetSlot];
+    const existingVote = (slotBlock.studentVotes || []).find(v => v.userId.toString() === studentId.toString());
+    
+    let isNowServed = false;
+    let currentMealType = slotBlock.manu;
+    let voteId = "";
 
-    if (!voteItem) {
-      // Walk-In Mode: Student did not vote ahead of time
-      const walkInVote = {
+    if (!existingVote) {
+      // ➔ Walk-In Mode: Handle plate addition atomically via direct Push
+      const newWalkIn = {
         userId: studentId,
         itemPreference: "regular",
-        finalAllocatedMenu: slot.manu, 
+        finalAllocatedMenu: slotBlock.manu, 
         isServed: true,
+        servedBy: activeManagerId, 
         servedAt: new Date(),
         votedAt: new Date()
       };
 
-      slot.studentVotes.push(walkInVote);
-      await meal.save();
-      voteItem = slot.studentVotes.find(v => v.userId.toString() === studentId.toString());
-    } else {
-      // Registered Vote Mode: Toggle service tracking flags
-      voteItem.isServed = !voteItem.isServed;
-      voteItem.servedAt = voteItem.isServed ? new Date() : null;
-      currentMealType = voteItem.finalAllocatedMenu;
+      const updatedMeal = await Meal.findOneAndUpdate(
+        { date: mealDate, hostelId: currentHostelId },
+        { $push: { [`${targetSlot}.studentVotes`]: newWalkIn  } },
+        { new: true }
+      );
       
-      await meal.save();
-    }
+      const freshlyCreatedVote = updatedMeal[targetSlot].studentVotes.find(v => v.userId.toString() === studentId.toString());
+      isNowServed = true;
+      voteId = freshlyCreatedVote ? freshlyCreatedVote._id : "";
+    } else {
+      // ➔ Registered Vote Mode: Atomically toggle serving statuses
+      isNowServed = !existingVote.isServed;
+      currentMealType = existingVote.finalAllocatedMenu;
+      voteId = existingVote._id;
 
-    const isNowServed = voteItem.isServed;
+      await Meal.updateOne(
+        { date: mealDate, hostelId: currentHostelId, [`${targetSlot}.studentVotes._id`]: existingVote._id },
+        { 
+          $set: { 
+            [`${targetSlot}.studentVotes.$.isServed`]: isNowServed,
+            [`${targetSlot}.studentVotes.$.servedBy`]: isNowServed ? activeManagerId : null, // 🌟 Track/Reset Server User ID
+            [`${targetSlot}.studentVotes.$.servedAt`]: isNowServed ? new Date() : null 
+          } 
+        }
+      );
+    }
 
     // 2. Normalize menu fields to match your dynamic FinePrice keys
     let subscriptionKey = currentMealType.toLowerCase();
-    if (subscriptionKey === "halal_chicken" || subscriptionKey === "chicken") {
-      subscriptionKey = "chicken";
-    } else if (subscriptionKey === "egg_substitute" || subscriptionKey === "egg") {
-      subscriptionKey = "egg";
-    } else if (subscriptionKey === "paneer") {
-      subscriptionKey = "paneer";
-    } else if (subscriptionKey === "fish") {
-      subscriptionKey = "fish";
-    } else if (subscriptionKey === "mutton") {
-      subscriptionKey = "mutton";
-    } else {
+    if (subscriptionKey.includes("chicken")) subscriptionKey = "chicken";
+    else if (subscriptionKey.includes("egg")) subscriptionKey = "egg";
+    else if (subscriptionKey !== "paneer" && subscriptionKey !== "fish" && subscriptionKey !== "mutton") {
       subscriptionKey = "veg";
     }
 
-    // 3. Fetch dynamic fine prices early from your FinePrice schema configuration
-    const priceDoc = await FinePrice.findOne({ hostelId: currentHostelId }).lean();
+    // 3. Parallel Database Index Fetching Optimization
+    const [priceDoc, subscription] = await Promise.all([
+      FinePrice.findOne({ hostelId: currentHostelId }).lean(),
+      StudentSubscription.findOne({
+        studentId,
+        hostelId: currentHostelId,
+        status: { $in: ["pending", "active", "completed"] }
+      }).sort({ createdAt: -1 })
+    ]);
+
     const defaultFallbacks = { veg: 35, egg: 45, paneer: 45, chicken: 65, fish: 55, mutton: 85 };
-    const finalBilledAmount = priceDoc && priceDoc.prices 
-      ? (priceDoc.prices[subscriptionKey] || defaultFallbacks[subscriptionKey])
-      : defaultFallbacks[subscriptionKey];
-
-    const manager = await User.findOne({ hostelId: currentHostelId, role: "manager" });
-
-    // 4. FIND ONE SUBSCRIPTION WITH EXPLICIT STATES
-    let subscription = await StudentSubscription.findOne({
-      studentId,
-      hostelId: currentHostelId,
-      status: { $in: ["pending", "active", "completed"] }
-    }).sort({ createdAt: -1 });
+    const finalBilledAmount = priceDoc?.prices?.[subscriptionKey] || defaultFallbacks[subscriptionKey];
 
     let forceFineBilling = false;
     let fineReasonDescription = "";
 
     if (subscription) {
-      //  FAST RULE 1: CHECK 60-DAY HARD EXPIRATION TRACK
       const purchaseDate = new Date(subscription.createdAt);
-      const today = new Date();
-      const differenceInDays = (today.getTime() - purchaseDate.getTime()) / (1000 * 3600 * 24);
+      const differenceInDays = (Date.now() - purchaseDate.getTime()) / (1000 * 3600 * 24);
 
       if (differenceInDays > 60) {
         if (subscription.status !== "completed") {
-          subscription.status = "completed"; // Mark package completed right here
-          await subscription.save();
+          await StudentSubscription.updateOne({ _id: subscription._id }, { $set: { status: "completed" } });
         }
         forceFineBilling = true;
         fineReasonDescription = "Student subscription package has exceeded its 60-day validity window and is expired.";
       }
 
-      //  FAST RULE 2: IF STATUS IS ALREADY COMPLETED -> FORCE FINE IMMEDIATELY
       if (subscription.status === "completed") {
         forceFineBilling = true;
         if (!fineReasonDescription) {
@@ -602,7 +611,6 @@ export const toggleServeStatus = async (req, res) => {
         }
       }
     } else {
-      // Student has no record at all in the database
       forceFineBilling = true;
       fineReasonDescription = "Student has no subscription history context found.";
     }
@@ -610,23 +618,19 @@ export const toggleServeStatus = async (req, res) => {
     let fineGenerated = false;
 
     if (isNowServed) {
-      // Evaluate if priority rules triggered true, OR if the active package runs out of tokens inside the category
-      const currentUsage = subscription ? (subscription.usage[subscriptionKey] || 0) : 0;
-      const maxAllowed = subscription ? (subscription.maxLimits[subscriptionKey] || 0) : 0;
+      const currentUsage = subscription?.usage?.[subscriptionKey] || 0;
+      const maxAllowed = subscription?.maxLimits?.[subscriptionKey] || 0;
 
       if (forceFineBilling || currentUsage >= maxAllowed) {
-        // Generate the billing fine invoice straight away
         await Fine.create({
           studentId,
-          managerId: manager ? manager._id : studentId,
+          managerId: activeManagerId, 
           hostelId: currentHostelId,
           title: forceFineBilling 
             ? `Walk-in Charge (Expired/Completed) - ${subscriptionKey.toUpperCase()}` 
             : `Extra Meal Charge - ${subscriptionKey.toUpperCase()}`,
           amount: finalBilledAmount,
-          description: forceFineBilling 
-            ? fineReasonDescription 
-            : `Limit for ${subscriptionKey} was ${maxAllowed}. Charged for exceeding baseline plan quotas.`,
+          description: forceFineBilling ? fineReasonDescription : `Limit for ${subscriptionKey} was ${maxAllowed}. Charged for exceeding plan quota bounds.`,
           status: "pending",
           isMealPackage: false,
           date: new Date()
@@ -634,7 +638,6 @@ export const toggleServeStatus = async (req, res) => {
         fineGenerated = true;
       }
     } else {
-      // Rollback safety: Delete pending invoices if manager un-clicks a serving line item
       await Fine.findOneAndDelete({
         studentId,
         hostelId: currentHostelId,
@@ -643,54 +646,35 @@ export const toggleServeStatus = async (req, res) => {
       });
     }
 
-    // 5. Update Active Token Quota Counts (Only runs if the subscription is genuinely active/pending and valid)
+    // 5. Update Active Token Quota Counts cleanly
     if (!forceFineBilling && subscription && (subscription.status === "active" || subscription.status === "pending")) {
       const incValue = isNowServed ? 1 : -1;
-      const updateKey = `usage.${subscriptionKey}`;
-
-      if (!(!isNowServed && (subscription.usage[subscriptionKey] || 0) <= 0)) {
-        
+      
+      if (!( !isNowServed && (subscription.usage[subscriptionKey] || 0) <= 0 )) {
         const updatedSub = await StudentSubscription.findByIdAndUpdate(
           subscription._id,
-          { $inc: { [updateKey]: incValue } },
+          { $inc: { [`usage.${subscriptionKey}`]: incValue } },
           { new: true }
         );
 
-        // Monitor if this exact serving pushes them into the completion threshold
         if (updatedSub) {
-          const totalUsedNow = 
-            (updatedSub.usage.veg || 0) + 
-            (updatedSub.usage.chicken || 0) + 
-            (updatedSub.usage.fish || 0) + 
-            (updatedSub.usage.egg || 0) +
-            (updatedSub.usage.paneer || 0) +
-            (updatedSub.usage.mutton || 0);
+          const totalUsedNow = ["veg", "chicken", "fish", "egg", "paneer", "mutton"]
+            .reduce((sum, key) => sum + (updatedSub.usage[key] || 0), 0);
 
-          // Marks completed for either 30 or 60 packs seamlessly
           if (totalUsedNow >= updatedSub.totalMealsBought) {
-            updatedSub.status = "completed"; 
-            await updatedSub.save(); // Saves final date track to database
+            await StudentSubscription.updateOne({ _id: subscription._id }, { $set: { status: "completed" } });
           }
         }
       }
     } else if (!isNowServed && subscription && forceFineBilling && subscription.status === "completed") {
-      // Special rollback boundary: If manager unserves the meal that filled the pack, make it active again
-      const totalUsedNow = 
-        (subscription.usage.veg || 0) + 
-        (subscription.usage.chicken || 0) + 
-        (subscription.usage.fish || 0) + 
-        (subscription.usage.egg || 0) +
-        (subscription.usage.paneer || 0) +
-        (subscription.usage.mutton || 0);
+      const totalUsedNow = ["veg", "chicken", "fish", "egg", "paneer", "mutton"]
+        .reduce((sum, key) => sum + (subscription.usage[key] || 0), 0);
 
       const purchaseDate = new Date(subscription.createdAt);
-      const today = new Date();
-      const differenceInDays = (today.getTime() - purchaseDate.getTime()) / (1000 * 3600 * 24);
+      const differenceInDays = (Date.now() - purchaseDate.getTime()) / (1000 * 3600 * 24);
 
-      // Re-activate only if it was closed due to count, NOT because of the 60 days time expiration
       if (totalUsedNow < subscription.totalMealsBought && differenceInDays <= 60) {
-        subscription.status = "active";
-        await subscription.save();
+        await StudentSubscription.updateOne({ _id: subscription._id }, { $set: { status: "active" } });
       }
     }
 
@@ -701,9 +685,9 @@ export const toggleServeStatus = async (req, res) => {
           ? `Billed as Extra: Pack status is Expired/Completed. Invoice of ₹${finalBilledAmount} generated!`
           : (fineGenerated ? `Extra ${subscriptionKey.toUpperCase()} served. Fine of ₹${finalBilledAmount} generated!` : `Marked ${subscriptionKey.toUpperCase()} as served`))
         : `Un-served ${subscriptionKey.toUpperCase()}. System records synchronized cleanly.`,
-      isServed: voteItem.isServed,
+      isServed: isNowServed,
       mealType: currentMealType,
-      voteId: voteItem._id
+      voteId: voteId
     });
 
   } catch (error) {
@@ -711,7 +695,6 @@ export const toggleServeStatus = async (req, res) => {
     return res.status(500).json({ success: false, message: "Internal Server Error: " + error.message });
   }
 };
-
 
 const consumptionOverviewCheck = async (subscriptionId) => {
   try {
