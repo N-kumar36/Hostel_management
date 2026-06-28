@@ -1,8 +1,57 @@
 import ShoppingItem from "../models/shopping.model.js";
-// 🌟 FIX: Updated path from "./messpaymenttracker/paymentTracker.js" to "./messPaymentTracker/paymentTracker.js"
-// This matches the exact case-sensitive folder name on your GitHub/Vercel server!
-import { calculateCurrentCycleBudget } from "./messPaymentTracker/paymentTracker.js";
-import moment from "moment-timezone"; 
+import moment from "moment-timezone";
+
+
+
+const calculateCurrentCycleBudget = async (hostelId) => {
+    try {
+        // 1. Fetch dates under the current running 1-60 meal block
+        const activeMeals = await Meal.find({
+            hostelId: hostelId,
+            $or: [
+                { "morning.mealsNum": { $gte: "1", $lte: "60" } },
+                { "night.mealsNum": { $gte: "1", $lte: "60" } }
+            ]
+        }).select("date");
+
+        const activeDates = activeMeals.map(meal => meal.date);
+
+        // 2. Strict Check: Find all student subscriptions for this hostel that are NOT completed
+        const uncompletedSubscriptions = await StudentSubscription.find({
+            hostelId: hostelId,
+            status: { $in: ["pending", "active"] } // Still running or upcoming
+        }).select("_id");
+
+        const subIds = uncompletedSubscriptions.map(sub => sub._id);
+
+        // 3. Aggregate successful fine payments linked to these uncompleted subscriptions
+        const collectedFines = await Fine.aggregate([
+            {
+                $match: {
+                    hostelId: new mongoose.Types.ObjectId(hostelId),
+                    subscriptionId: { $in: subIds },
+                    status: "success" // Strictly check successful payments
+                }
+            },
+            {
+                $group: {
+                    _id: null,
+                    totalCollected: { $sum: "$amount" }
+                }
+            }
+        ]);
+
+        const collectedFineFunds = collectedFines.length > 0 ? collectedFines[0].totalCollected : 0;
+
+        return {
+            activeDates,
+            collectedFineFunds
+        };
+    } catch (error) {
+        console.error("Budget tracking calculation error:", error);
+        throw error;
+    }
+};
 
 /**
  * @desc    Helper utility to generate formatted server date-time string
