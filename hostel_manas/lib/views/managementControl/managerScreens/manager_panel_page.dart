@@ -1,3 +1,4 @@
+import 'package:HostelMess/views/managementControl/views/buyItemsAdd/buyItems.dart';
 import 'package:flutter/material.dart';
 import 'package:HostelMess/services/api_service.dart';
 
@@ -26,7 +27,7 @@ class _ManagerPanelPageState extends State<ManagerPanelPage> {
   int pendingStudentCount = 0;
   int pendingGuestMealCount = 0;
   int pendingComplaintCount = 0;
-  int pendingFineCount = 0; 
+  int pendingFineCount = 0;
   bool isScreenLoading = false;
 
   @override
@@ -46,10 +47,12 @@ class _ManagerPanelPageState extends State<ManagerPanelPage> {
         setState(() {
           pendingStudentCount = res['pendingStudents'] ?? 0;
           pendingGuestMealCount = res['pendingGuests'] ?? 0;
-          pendingComplaintCount = res['pendingComplaints'] ?? 0; 
-          pendingFineCount = res['pendingFines'] ?? 0; 
+          pendingComplaintCount = res['pendingComplaints'] ?? 0;
+          pendingFineCount = res['pendingFines'] ?? 0;
         });
-        print("Dashboard counts loaded: $res | Pending Students: $pendingStudentCount, Pending Guests: $pendingGuestMealCount, Pending Complaints: $pendingComplaintCount, Pending Fines: $pendingFineCount");
+        print(
+          "Dashboard counts loaded: $res | Pending Students: $pendingStudentCount, Pending Guests: $pendingGuestMealCount, Pending Complaints: $pendingComplaintCount, Pending Fines: $pendingFineCount",
+        );
       }
     } catch (e) {
       debugPrint("Error loading dashboard counters: $e");
@@ -65,7 +68,10 @@ class _ManagerPanelPageState extends State<ManagerPanelPage> {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text("Manager Panel", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        title: const Text(
+          "Manager Panel",
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+        ),
         centerTitle: true,
         backgroundColor: Colors.white,
         foregroundColor: Colors.black87,
@@ -74,7 +80,7 @@ class _ManagerPanelPageState extends State<ManagerPanelPage> {
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: Colors.deepPurple),
             onPressed: _fetchCounts,
-          )
+          ),
         ],
       ),
       body: RefreshIndicator(
@@ -94,18 +100,22 @@ class _ManagerPanelPageState extends State<ManagerPanelPage> {
               Colors.green,
               () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const PendingStudentsPage()),
-              ).then((_) => _fetchCounts()), 
+                MaterialPageRoute(
+                  builder: (context) => const PendingStudentsPage(),
+                ),
+              ).then((_) => _fetchCounts()),
               badgeCount: pendingStudentCount,
             ),
             _adminCard(
-              context, 
-              "All Students", 
-              Icons.group_rounded, 
-              Colors.purple, 
+              context,
+              "All Students",
+              Icons.group_rounded,
+              Colors.purple,
               () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const AllHostelStudentPage()),
+                MaterialPageRoute(
+                  builder: (context) => const AllHostelStudentPage(),
+                ),
               ),
             ),
             _adminCard(
@@ -115,7 +125,9 @@ class _ManagerPanelPageState extends State<ManagerPanelPage> {
               Colors.teal.shade600,
               () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const RoutineManagementPage()),
+                MaterialPageRoute(
+                  builder: (context) => const RoutineManagementPage(),
+                ),
               ),
             ),
             _adminCard(
@@ -125,7 +137,9 @@ class _ManagerPanelPageState extends State<ManagerPanelPage> {
               const Color.fromARGB(255, 34, 211, 208),
               () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const MealManagementPage()),
+                MaterialPageRoute(
+                  builder: (context) => const MealManagementPage(),
+                ),
               ),
             ),
             _adminCard(
@@ -135,7 +149,9 @@ class _ManagerPanelPageState extends State<ManagerPanelPage> {
               Colors.blue,
               () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const VoteStatusSelectionPage()),
+                MaterialPageRoute(
+                  builder: (context) => const VoteStatusSelectionPage(),
+                ),
               ),
             ),
             _adminCard(
@@ -156,11 +172,11 @@ class _ManagerPanelPageState extends State<ManagerPanelPage> {
               () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (context) => const GuestMealPage()),
-              ).then((_) => _fetchCounts()), 
+              ).then((_) => _fetchCounts()),
               badgeCount: pendingGuestMealCount,
             ),
-            
-            // ✨ UPDATED: Finance Management Card with independent counter badge
+
+            //  UPDATED: Finance Management Card with independent counter badge
             _adminCard(
               context,
               "Finance Management",
@@ -168,11 +184,29 @@ class _ManagerPanelPageState extends State<ManagerPanelPage> {
               Colors.red,
               () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const FineManagementPage()),
+                MaterialPageRoute(
+                  builder: (context) => const FineManagementPage(),
+                ),
               ).then((_) => _fetchCounts()),
-              badgeCount: pendingFineCount, // ✅ Displays true count of unhandled pending fines!
+              badgeCount: pendingFineCount,
             ),
-            
+
+            _adminCard(
+              context,
+              "Add Shopping Items",
+              Icons.shopping_cart_outlined,
+              const Color.fromARGB(255, 48, 63, 222),
+              () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const BuyItemsPage()),
+                ).then((_) => _fetchCounts());
+              },
+              badgeCount: pendingGuestMealCount,
+            ),
+
+           
+
             _adminCard(
               context,
               "Meal Subscriptions",
@@ -180,7 +214,9 @@ class _ManagerPanelPageState extends State<ManagerPanelPage> {
               Colors.green.shade700,
               () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const MealSubscriptionsPage()),
+                MaterialPageRoute(
+                  builder: (context) => const MealSubscriptionsPage(),
+                ),
               ),
               badgeCount: 0,
             ),
@@ -233,7 +269,12 @@ class _ManagerPanelPageState extends State<ManagerPanelPage> {
                     Text(
                       title,
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 13, letterSpacing: 0.2),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: color,
+                        fontSize: 13,
+                        letterSpacing: 0.2,
+                      ),
                     ),
                   ],
                 ),
@@ -252,13 +293,21 @@ class _ManagerPanelPageState extends State<ManagerPanelPage> {
                 color: Colors.red.shade600,
                 shape: BoxShape.circle,
                 boxShadow: const [
-                  BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 1.5)),
+                  BoxShadow(
+                    color: Colors.black12,
+                    blurRadius: 4,
+                    offset: Offset(0, 1.5),
+                  ),
                 ],
               ),
               child: Center(
                 child: Text(
                   badgeCount > 99 ? '99+' : badgeCount.toString(),
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 10),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 10,
+                  ),
                   textAlign: TextAlign.center,
                 ),
               ),

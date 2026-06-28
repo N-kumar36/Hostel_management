@@ -213,7 +213,7 @@ class _StudentDetailsPageState extends State<StudentDetailsPage> {
                           labelText: "Academic Year",
                           border: OutlineInputBorder(),
                         ),
-                        items: ["1st Year", "2nd Year", "3rd Year", "4th Year"]
+                        items: ["1st Year", "2nd Year", "3rd Year", "4th Year", "5th Year"]
                             .map(
                               (y) => DropdownMenuItem(value: y, child: Text(y)),
                             )
