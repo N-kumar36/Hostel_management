@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 
+
 // --- 1. Embedded Student Personal Vote Sub-Schema ---
 const embeddedStudentVoteSchema = new mongoose.Schema({
   userId: {
@@ -9,12 +10,7 @@ const embeddedStudentVoteSchema = new mongoose.Schema({
   },
   itemPreference: {
     type: String,
-    enum: [
-      "regular",        
-      "halal_chicken",  
-      "egg_substitute", 
-      "veg_forced"      
-    ],
+    enum: ["regular", "halal_chicken", "egg_substitute", "veg_forced"],
     default: "regular",
     required: true
   },
@@ -24,14 +20,27 @@ const embeddedStudentVoteSchema = new mongoose.Schema({
   },
   votedAt: { type: Date, default: Date.now },
   isServed: { type: Boolean, default: false },
-  
-  //  FIX: Changed from 'ServedBy' to 'servedBy' to match controller update keys perfectly
-  servedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User",
-    default: null
-  },
-  servedAt: Date
+
+  //  FIX: Diubah menjadi array object history untuk mencatat log aktivitas pelayanan manager
+  servedByHistory: [
+    {
+      managerId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        required: true
+      },
+      action: {
+        type: String,
+        enum: ["serve", "unserve"], // Mencatat apakah dia menyajikan atau membatalkan
+        required: true
+      },
+      changedAt: {
+        type: Date,
+        default: Date.now
+      }
+    }
+  ],
+  servedAt: Date // Menyimpan tanggal penyajian terakhir rill
 });
 
 // --- 2. Embedded Guest Request Sub-Schema ---
@@ -87,7 +96,7 @@ const dailyMealSchema = new mongoose.Schema(
       required: true,
     },
     date: {
-      type: String, 
+      type: String,
       required: true,
     },
     morning: {

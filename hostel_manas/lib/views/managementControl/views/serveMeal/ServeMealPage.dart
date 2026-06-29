@@ -66,7 +66,7 @@ class _ServeMealPageState extends State<ServeMealPage> {
         setState(() {
           _allVotes = res['data'] ?? [];
           
-          // 🌟 Capture the tracking sequence count index number safely from the response structure
+          //  Capture the tracking sequence count index number safely from the response structure
           mealSequenceNumber = (res['mealsNum'] ?? "0").toString();
 
           // Dynamically capture the true base menu configuration snapshot
@@ -180,7 +180,7 @@ class _ServeMealPageState extends State<ServeMealPage> {
     }
   }
 
-  // 🌟 NEW UTILITY: Displays profile photos in full screen dialog with pinch-zoom support
+  //  NEW UTILITY: Displays profile photos in full screen dialog with pinch-zoom support
   void _showFullScreenImage(String imageUrl, String studentName) {
     showDialog(
       context: context,
@@ -544,7 +544,7 @@ class _ServeMealPageState extends State<ServeMealPage> {
           ),
           child: ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-            // 🌟 Tap GestureDetector wrap enables click-to-fullscreen popup photo previewing actions
+            //  Tap GestureDetector wrap enables click-to-fullscreen popup photo previewing actions
             leading: GestureDetector(
               onTap: photoUrl.isNotEmpty
                   ? () => _showFullScreenImage(photoUrl, vote['studentName'] ?? "Student")

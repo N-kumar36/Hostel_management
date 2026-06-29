@@ -506,195 +506,207 @@ export const getVotesByDateAndSlot = async (req, res) => {
  * @route   POST /api/manager/toggle-serve
  */
 
-export const toggleServeStatus = async (req, res) => {
-  try {
-    const { studentId, mealDate, timeSlot } = req.body;
-    const currentHostelId = req.user.hostelId;
-    const targetSlot = timeSlot.toLowerCase();
-    const activeManagerId = req.user._id; 
-
-
-    if (!studentId || !mealDate || !timeSlot) {
-      return res.status(400).json({ success: false, message: "Missing required query targeting fields." });
-    }
-
-    // 1. O(1) Search Check: Query document matching criteria instantly
-    const mealDocCheck = await Meal.findOne({ date: mealDate, hostelId: currentHostelId }).lean();
-    if (!mealDocCheck) return res.status(404).json({ success: false, message: "Meal document schedule entry matrix missing." });
-
-    const slotBlock = mealDocCheck[targetSlot];
-    const existingVote = (slotBlock.studentVotes || []).find(v => v.userId.toString() === studentId.toString());
+// export const toggleServeStatus = async (req, res) => {
+//   try {
+//     const { studentId, mealDate, timeSlot } = req.body;
+//     const currentHostelId = req.user.hostelId;
+//     const targetSlot = timeSlot.toLowerCase();
     
-    let isNowServed = false;
-    let currentMealType = slotBlock.manu;
-    let voteId = "";
+    
 
-    if (!existingVote) {
-      // ➔ Walk-In Mode: Handle plate addition atomically via direct Push
-      const newWalkIn = {
-        userId: studentId,
-        itemPreference: "regular",
-        finalAllocatedMenu: slotBlock.manu, 
-        isServed: true,
-        servedBy: activeManagerId, 
-        servedAt: new Date(),
-        votedAt: new Date()
-      };
+//     // Resolve manager ID safely
+//     const rawManagerId = req.user._id || req.user.id; 
+//     if (!rawManagerId) {
+//       return res.status(401).json({ success: false, message: "Unauthorized. Manager session context missing." });
+//     }
+//     const activeManagerId = new mongoose.Types.ObjectId(rawManagerId);
 
-      const updatedMeal = await Meal.findOneAndUpdate(
-        { date: mealDate, hostelId: currentHostelId },
-        { $push: { [`${targetSlot}.studentVotes`]: newWalkIn  } },
-        { new: true }
-      );
+//     if (!studentId || !mealDate || !timeSlot) {
+//       return res.status(400).json({ success: false, message: "Missing required query targeting fields." });
+//     }
+
+//     // 1. Fetch current meal plan document state
+//     const mealDocCheck = await Meal.findOne({ date: mealDate, hostelId: currentHostelId }).lean();
+//     if (!mealDocCheck) return res.status(404).json({ success: false, message: "Meal document schedule entry matrix missing." });
+
+//     const slotBlock = mealDocCheck[targetSlot];
+//     const existingVote = (slotBlock.studentVotes || []).find(v => v.userId.toString() === studentId.toString());
+    
+//     let isNowServed = false;
+//     let currentMealType = slotBlock.manu;
+//     let voteId = "";
+
+//     if (!existingVote) {
+//       // ➔ WALK-IN MODE
+//       const newWalkIn = {
+//         userId: new mongoose.Types.ObjectId(studentId),
+//         itemPreference: "regular",
+//         finalAllocatedMenu: slotBlock.manu, 
+//         isServed: true,
+//         servedBy: activeManagerId, // 🌟 Safe explicit injection
+//         servedAt: new Date(),
+//         votedAt: new Date()
+//       };
+
+//       const updatedMeal = await Meal.findOneAndUpdate(
+//         { date: mealDate, hostelId: currentHostelId },
+//         { $push: { [`${targetSlot}.studentVotes`]: newWalkIn } },
+//         { new: true }
+//       );
       
-      const freshlyCreatedVote = updatedMeal[targetSlot].studentVotes.find(v => v.userId.toString() === studentId.toString());
-      isNowServed = true;
-      voteId = freshlyCreatedVote ? freshlyCreatedVote._id : "";
-    } else {
-      // ➔ Registered Vote Mode: Atomically toggle serving statuses
-      isNowServed = !existingVote.isServed;
-      currentMealType = existingVote.finalAllocatedMenu;
-      voteId = existingVote._id;
+//       const freshlyCreatedVote = updatedMeal[targetSlot].studentVotes.find(v => v.userId.toString() === studentId.toString());
+//       isNowServed = true;
+//       voteId = freshlyCreatedVote ? freshlyCreatedVote._id : "";
+//     } else {
+//       // ➔ REGISTERED VOTE MODE
+//       isNowServed = !existingVote.isServed;
+//       currentMealType = existingVote.finalAllocatedMenu;
+//       voteId = existingVote._id;
 
-      await Meal.updateOne(
-        { date: mealDate, hostelId: currentHostelId, [`${targetSlot}.studentVotes._id`]: existingVote._id },
-        { 
-          $set: { 
-            [`${targetSlot}.studentVotes.$.isServed`]: isNowServed,
-            [`${targetSlot}.studentVotes.$.servedBy`]: isNowServed ? activeManagerId : null, // 🌟 Track/Reset Server User ID
-            [`${targetSlot}.studentVotes.$.servedAt`]: isNowServed ? new Date() : null 
-          } 
-        }
-      );
-    }
+//       // 🌟 FIX: Use studentVotes.userId instead of studentVotes._id to ensure the query hits perfectly
+//       await Meal.updateOne(
+//         { 
+//           date: mealDate, 
+//           hostelId: currentHostelId, 
+//           [`${targetSlot}.studentVotes.userId`]: new mongoose.Types.ObjectId(studentId) 
+//         },
+//         { 
+//           $set: { 
+//             [`${targetSlot}.studentVotes.$.isServed`]: isNowServed,
+//             [`${targetSlot}.studentVotes.$.servedBy`]: isNowServed ? activeManagerId : null, 
+//             [`${targetSlot}.studentVotes.$.servedAt`]: isNowServed ? new Date() : null 
+//           } 
+//         }
+//       );
+//     }
 
-    // 2. Normalize menu fields to match your dynamic FinePrice keys
-    let subscriptionKey = currentMealType.toLowerCase();
-    if (subscriptionKey.includes("chicken")) subscriptionKey = "chicken";
-    else if (subscriptionKey.includes("egg")) subscriptionKey = "egg";
-    else if (subscriptionKey !== "paneer" && subscriptionKey !== "fish" && subscriptionKey !== "mutton") {
-      subscriptionKey = "veg";
-    }
+//     // 2. Normalize menu fields to match your dynamic FinePrice keys
+//     let subscriptionKey = currentMealType.toLowerCase();
+//     if (subscriptionKey.includes("chicken")) subscriptionKey = "chicken";
+//     else if (subscriptionKey.includes("egg")) subscriptionKey = "egg";
+//     else if (subscriptionKey !== "paneer" && subscriptionKey !== "fish" && subscriptionKey !== "mutton") {
+//       subscriptionKey = "veg";
+//     }
 
-    // 3. Parallel Database Index Fetching Optimization
-    const [priceDoc, subscription] = await Promise.all([
-      FinePrice.findOne({ hostelId: currentHostelId }).lean(),
-      StudentSubscription.findOne({
-        studentId,
-        hostelId: currentHostelId,
-        status: { $in: ["pending", "active", "completed"] }
-      }).sort({ createdAt: -1 })
-    ]);
+//     // 3. Parallel Database Index Fetching Optimization
+//     const [priceDoc, subscription] = await Promise.all([
+//       FinePrice.findOne({ hostelId: currentHostelId }).lean(),
+//       StudentSubscription.findOne({
+//         studentId,
+//         hostelId: currentHostelId,
+//         status: { $in: ["pending", "active", "completed"] }
+//       }).sort({ createdAt: -1 })
+//     ]);
 
-    const defaultFallbacks = { veg: 35, egg: 45, paneer: 45, chicken: 65, fish: 55, mutton: 85 };
-    const finalBilledAmount = priceDoc?.prices?.[subscriptionKey] || defaultFallbacks[subscriptionKey];
+//     const defaultFallbacks = { veg: 35, egg: 45, paneer: 45, chicken: 65, fish: 55, mutton: 85 };
+//     const finalBilledAmount = priceDoc?.prices?.[subscriptionKey] || defaultFallbacks[subscriptionKey];
 
-    let forceFineBilling = false;
-    let fineReasonDescription = "";
+//     let forceFineBilling = false;
+//     let fineReasonDescription = "";
 
-    if (subscription) {
-      const purchaseDate = new Date(subscription.createdAt);
-      const differenceInDays = (Date.now() - purchaseDate.getTime()) / (1000 * 3600 * 24);
+//     if (subscription) {
+//       const purchaseDate = new Date(subscription.createdAt);
+//       const differenceInDays = (Date.now() - purchaseDate.getTime()) / (1000 * 3600 * 24);
 
-      if (differenceInDays > 60) {
-        if (subscription.status !== "completed") {
-          await StudentSubscription.updateOne({ _id: subscription._id }, { $set: { status: "completed" } });
-        }
-        forceFineBilling = true;
-        fineReasonDescription = "Student subscription package has exceeded its 60-day validity window and is expired.";
-      }
+//       if (differenceInDays > 60) {
+//         if (subscription.status !== "completed") {
+//           await StudentSubscription.updateOne({ _id: subscription._id }, { $set: { status: "completed" } });
+//         }
+//         forceFineBilling = true;
+//         fineReasonDescription = "Student subscription package has exceeded its 60-day validity window and is expired.";
+//       }
 
-      if (subscription.status === "completed") {
-        forceFineBilling = true;
-        if (!fineReasonDescription) {
-          fineReasonDescription = "Student has an already completed/exhausted subscription package layout.";
-        }
-      }
-    } else {
-      forceFineBilling = true;
-      fineReasonDescription = "Student has no subscription history context found.";
-    }
+//       if (subscription.status === "completed") {
+//         forceFineBilling = true;
+//         if (!fineReasonDescription) {
+//           fineReasonDescription = "Student has an already completed/exhausted subscription package layout.";
+//         }
+//       }
+//     } else {
+//       forceFineBilling = true;
+//       fineReasonDescription = "Student has no subscription history context found.";
+//     }
 
-    let fineGenerated = false;
+//     let fineGenerated = false;
 
-    if (isNowServed) {
-      const currentUsage = subscription?.usage?.[subscriptionKey] || 0;
-      const maxAllowed = subscription?.maxLimits?.[subscriptionKey] || 0;
+//     if (isNowServed) {
+//       const currentUsage = subscription?.usage?.[subscriptionKey] || 0;
+//       const maxAllowed = subscription?.maxLimits?.[subscriptionKey] || 0;
 
-      if (forceFineBilling || currentUsage >= maxAllowed) {
-        await Fine.create({
-          studentId,
-          managerId: activeManagerId, 
-          hostelId: currentHostelId,
-          title: forceFineBilling 
-            ? `Walk-in Charge (Expired/Completed) - ${subscriptionKey.toUpperCase()}` 
-            : `Extra Meal Charge - ${subscriptionKey.toUpperCase()}`,
-          amount: finalBilledAmount,
-          description: forceFineBilling ? fineReasonDescription : `Limit for ${subscriptionKey} was ${maxAllowed}. Charged for exceeding plan quota bounds.`,
-          status: "pending",
-          isMealPackage: false,
-          date: new Date()
-        });
-        fineGenerated = true;
-      }
-    } else {
-      await Fine.findOneAndDelete({
-        studentId,
-        hostelId: currentHostelId,
-        status: "pending",
-        title: { $regex: new RegExp(subscriptionKey, "i") }
-      });
-    }
+//       if (forceFineBilling || currentUsage >= maxAllowed) {
+//         await Fine.create({
+//           studentId,
+//           managerId: activeManagerId, 
+//           hostelId: currentHostelId,
+//           title: forceFineBilling 
+//             ? `Walk-in Charge (Expired/Completed) - ${subscriptionKey.toUpperCase()}` 
+//             : `Extra Meal Charge - ${subscriptionKey.toUpperCase()}`,
+//           amount: finalBilledAmount,
+//           description: forceFineBilling ? fineReasonDescription : `Limit for ${subscriptionKey} was ${maxAllowed}. Charged for exceeding plan quota bounds.`,
+//           status: "pending",
+//           isMealPackage: false,
+//           date: new Date()
+//         });
+//         fineGenerated = true;
+//       }
+//     } else {
+//       await Fine.findOneAndDelete({
+//         studentId,
+//         hostelId: currentHostelId,
+//         status: "pending",
+//         title: { $regex: new RegExp(subscriptionKey, "i") }
+//       });
+//     }
 
-    // 5. Update Active Token Quota Counts cleanly
-    if (!forceFineBilling && subscription && (subscription.status === "active" || subscription.status === "pending")) {
-      const incValue = isNowServed ? 1 : -1;
+//     // 5. Update Active Token Quota Counts cleanly
+//     if (!forceFineBilling && subscription && (subscription.status === "active" || subscription.status === "pending")) {
+//       const incValue = isNowServed ? 1 : -1;
       
-      if (!( !isNowServed && (subscription.usage[subscriptionKey] || 0) <= 0 )) {
-        const updatedSub = await StudentSubscription.findByIdAndUpdate(
-          subscription._id,
-          { $inc: { [`usage.${subscriptionKey}`]: incValue } },
-          { new: true }
-        );
+//       if (!( !isNowServed && (subscription.usage[subscriptionKey] || 0) <= 0 )) {
+//         const updatedSub = await StudentSubscription.findByIdAndUpdate(
+//           subscription._id,
+//           { $inc: { [`usage.${subscriptionKey}`]: incValue } },
+//           { new: true }
+//         );
 
-        if (updatedSub) {
-          const totalUsedNow = ["veg", "chicken", "fish", "egg", "paneer", "mutton"]
-            .reduce((sum, key) => sum + (updatedSub.usage[key] || 0), 0);
+//         if (updatedSub) {
+//           const totalUsedNow = ["veg", "chicken", "fish", "egg", "paneer", "mutton"]
+//             .reduce((sum, key) => sum + (updatedSub.usage[key] || 0), 0);
 
-          if (totalUsedNow >= updatedSub.totalMealsBought) {
-            await StudentSubscription.updateOne({ _id: subscription._id }, { $set: { status: "completed" } });
-          }
-        }
-      }
-    } else if (!isNowServed && subscription && forceFineBilling && subscription.status === "completed") {
-      const totalUsedNow = ["veg", "chicken", "fish", "egg", "paneer", "mutton"]
-        .reduce((sum, key) => sum + (subscription.usage[key] || 0), 0);
+//           if (totalUsedNow >= updatedSub.totalMealsBought) {
+//             await StudentSubscription.updateOne({ _id: subscription._id }, { $set: { status: "completed" } });
+//           }
+//         }
+//       }
+//     } else if (!isNowServed && subscription && forceFineBilling && subscription.status === "completed") {
+//       const totalUsedNow = ["veg", "chicken", "fish", "egg", "paneer", "mutton"]
+//         .reduce((sum, key) => sum + (subscription.usage[key] || 0), 0);
 
-      const purchaseDate = new Date(subscription.createdAt);
-      const differenceInDays = (Date.now() - purchaseDate.getTime()) / (1000 * 3600 * 24);
+//       const purchaseDate = new Date(subscription.createdAt);
+//       const differenceInDays = (Date.now() - purchaseDate.getTime()) / (1000 * 3600 * 24);
 
-      if (totalUsedNow < subscription.totalMealsBought && differenceInDays <= 60) {
-        await StudentSubscription.updateOne({ _id: subscription._id }, { $set: { status: "active" } });
-      }
-    }
+//       if (totalUsedNow < subscription.totalMealsBought && differenceInDays <= 60) {
+//         await StudentSubscription.updateOne({ _id: subscription._id }, { $set: { status: "active" } });
+//       }
+//     }
 
-    return res.status(200).json({
-      success: true,
-      message: isNowServed
-        ? (forceFineBilling
-          ? `Billed as Extra: Pack status is Expired/Completed. Invoice of ₹${finalBilledAmount} generated!`
-          : (fineGenerated ? `Extra ${subscriptionKey.toUpperCase()} served. Fine of ₹${finalBilledAmount} generated!` : `Marked ${subscriptionKey.toUpperCase()} as served`))
-        : `Un-served ${subscriptionKey.toUpperCase()}. System records synchronized cleanly.`,
-      isServed: isNowServed,
-      mealType: currentMealType,
-      voteId: voteId
-    });
+//     return res.status(200).json({
+//       success: true,
+//       message: isNowServed
+//         ? (forceFineBilling
+//           ? `Billed as Extra: Pack status is Expired/Completed. Invoice of ₹${finalBilledAmount} generated!`
+//           : (fineGenerated ? `Extra ${subscriptionKey.toUpperCase()} served. Fine of ₹${finalBilledAmount} generated!` : `Marked ${subscriptionKey.toUpperCase()} as served`))
+//         : `Un-served ${subscriptionKey.toUpperCase()}. System records synchronized cleanly.`,
+//       isServed: isNowServed,
+//       mealType: currentMealType,
+//       voteId: voteId
+//     });
 
-  } catch (error) {
-    console.error("Critical Toggle Serve Flow Failure:", error);
-    return res.status(500).json({ success: false, message: "Internal Server Error: " + error.message });
-  }
-};
+//   } catch (error) {
+//     console.error("Critical Toggle Serve Flow Failure:", error);
+//     return res.status(500).json({ success: false, message: "Internal Server Error: " + error.message });
+//   }
+// };
 
 const consumptionOverviewCheck = async (subscriptionId) => {
   try {

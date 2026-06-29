@@ -244,6 +244,8 @@ export const getStudentSummary = async (req, res) => {
       });
     }
 
+    console.log("getStudentSummary", startDateStr, endDateStr);
+
     // 1. Convert dynamic text timestamps (DD/MM/YYYY) into native UTC bounds
     const [startDay, startMonth, startYear] = startDateStr.split("/");
     const [endDay, endMonth, endYear] = endDateStr.split("/");
@@ -277,12 +279,12 @@ export const getStudentSummary = async (req, res) => {
       date: f.date
     }));
 
-    // 4.  OPTIMIZATION: Filter records and populate both slots' ServedBy path with user names
+    // 4. Populate path target ke array history manager yang baru
     const targetMeals = await Meal.find({ hostelId: req.user.hostelId })
       .sort({ _id: -1 })
       .limit(90)
-      .populate("morning.studentVotes.ServedBy", "name")
-      .populate("night.studentVotes.ServedBy", "name");
+      .populate("morning.studentVotes.servedByHistory.managerId", "name")
+      .populate("night.studentVotes.servedByHistory.managerId", "name");
 
     let studentOwnVotes = 0;
     let totalGuestVotes = 0;
@@ -312,8 +314,15 @@ export const getStudentSummary = async (req, res) => {
 
           const guestCount = approvedGuestRequest ? (approvedGuestRequest.guestCount || 0) : 0;
 
-          // Safely extract the populated name string or fallback to "N/A"
-          const servedByName = userVote && userVote.ServedBy ? (userVote.ServedBy.name || "Unknown") : "N/A";
+          // Ekstraksi riwayat nama manager pelayan terakhir secara dinamis
+          let servedByName = "N/A";
+          if (userVote && userVote.isServed && userVote.servedByHistory && userVote.servedByHistory.length > 0) {
+            const serveLogs = userVote.servedByHistory.filter(log => log.action === "serve");
+            if (serveLogs.length > 0) {
+              const lastServeLog = serveLogs[serveLogs.length - 1];
+              servedByName = lastServeLog.managerId ? (lastServeLog.managerId.name || "Unknown") : "Unknown";
+            }
+          }
 
           if (userVote) {
             studentOwnVotes++;
@@ -323,7 +332,7 @@ export const getStudentSummary = async (req, res) => {
             votedMealsHistory.push({
               date: meal.date,
               mealsNum: slotData.mealsNum || "0",
-              manu: slotData.manu || "N/A", // From the top level of the slot configuration wrapper
+              manu: slotData.manu || "N/A", 
               itemPreference: userVote.itemPreference || "regular",
               ServedBy: servedByName,
               slot: slot,
@@ -332,12 +341,11 @@ export const getStudentSummary = async (req, res) => {
               guestCount: guestCount
             });
           } else {
-            // Unvoted day trace elements inside cycle timeline boundaries
             votedMealsHistory.push({
               date: meal.date,
               mealsNum: slotData.mealsNum || "0",
               manu: slotData.manu || "N/A",
-              itemPreference: "N/A", // No preferences exist since they didn't place a vote
+              itemPreference: "N/A", 
               ServedBy: "N/A",
               slot: slot,
               voted: false,
@@ -349,18 +357,12 @@ export const getStudentSummary = async (req, res) => {
       });
     });
 
-
-
-
-    // SORT ARRANGEMENT: Orders chronologically by absolute Meal Number (1, 2, 3...)
+    // 🌟 FIX: Memastikan nama variabel di sini dicocokkan dengan benar
     votedMealsHistory.sort((a, b) => {
       const numA = parseInt(a.mealsNum, 10) || 0;
       const numB = parseInt(b.mealsNum, 10) || 0;
-
-      // Sorts in Ascending order (Meal 1, Meal 2, Meal 3 at the bottom)
       return numA - numB;
     });
-
 
     // 5. Send optimized payload response
     return res.status(200).json({
@@ -382,7 +384,6 @@ export const getStudentSummary = async (req, res) => {
     });
   }
 };
-
 export const getDashboardCounts = async (req, res) => {
   try {
     const hostelId = req.user.hostelId;

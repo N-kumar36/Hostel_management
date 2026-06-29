@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { protect } from "../middleware/authMiddleware.js";
-import { voteMeal, cancelVote, checkVoteStatus, getVotesByDateAndSlot, checkUserVotesForWeek, toggleServeStatus, getVoteHistory } from "../controllers/vote.controller.js";
+import { voteMeal, cancelVote, checkVoteStatus, getVotesByDateAndSlot, checkUserVotesForWeek,  getVoteHistory } from "../controllers/vote.controller.js";
+import { toggleServeStatus } from "../controllers/serveMeal/toggleServeController.js";
 
 const router = Router();
 router.post("/post", protect, voteMeal);

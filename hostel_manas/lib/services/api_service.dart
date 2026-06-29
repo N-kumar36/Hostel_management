@@ -9,9 +9,9 @@ import 'package:intl/intl.dart';
 
 class ApiService {
   // final String baseUrl = "https://hostel-management-3e61.onrender.com/api";
-  // final String baseUrl = "http://192.168.0.22:5000/api";
+  final String baseUrl = "http://192.168.0.22:5000/api";
   // final String baseUrl = "http://192.168.18.253:5000/api";
-  final String baseUrl = "https://hostel-management-rouge-six.vercel.app/api";
+  // final String baseUrl = "https://hostel-management-rouge-six.vercel.app/api";
 
   // Helper to get headers with Bearer token
   Future<Map<String, String>> _getHeaders() async {
@@ -1218,7 +1218,6 @@ class ApiService {
     String? startDateStr,
     String? endDateStr,
   }) async {
-    print("GetSumary date ${startDateStr} ${endDateStr}");
     try {
       // 1. Base endpoint declaration matching your routing configuration
       String urlPath = '$baseUrl/managers/Status/$studentId';
@@ -1227,6 +1226,9 @@ class ApiService {
       if (startDateStr != null && endDateStr != null) {
         urlPath += '?startDateStr=$startDateStr&endDateStr=$endDateStr';
       }
+
+    print("GetSumary date ${startDateStr} ${endDateStr} URi ${urlPath}");
+
 
       final response = await http.get(
         Uri.parse(urlPath),
