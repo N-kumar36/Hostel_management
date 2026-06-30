@@ -11,8 +11,7 @@ export async function chooseServer(req, res, next) {
             });
         }
 
-        // Attach the prioritized server pool array onto the req object 
-        // so the controller can loop through them if the primary fails.
+       
         req.serversPool = orderedServers;
 
         console.log(` Request scheduled across ${orderedServers.length} active backends.`);
