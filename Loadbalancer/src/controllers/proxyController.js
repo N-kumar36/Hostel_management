@@ -11,7 +11,7 @@ export const proxyRequest = async (req, res) => {
                 method: req.method,
                 url: `${server.url}${req.originalUrl}`,
                 data: req.body,
-                timeout: 5000,
+                timeout: 8000,
                 headers: {
                     "Content-Type": "application/json",
                     Authorization: req.headers.authorization || "",
