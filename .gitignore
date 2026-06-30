@@ -4,6 +4,12 @@ Backend/.env
 Backend/logs
 Backend/*.log
 
+# Node
+Loadbalancer/node_modules
+Loadbalancer/.env
+Loadbalancer/logs
+Loadbalancer/*.log
+
 # Flutter
 hostel_manas/.dart_tool/
 hostel_manas/build/
