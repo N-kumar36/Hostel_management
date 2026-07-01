@@ -9,10 +9,10 @@ import 'package:intl/intl.dart';
 
 class ApiService {
   // final String baseUrl = "https://hostel-management-3e61.onrender.com/api";
-  final String baseUrl = "http://192.168.0.22:5000/api";
+  // final String baseUrl = "http://192.168.0.22:5000/api";
 
   // load balancer
-  // final String baseUrl = "https://hostel-management-vorh.vercel.app/api";
+  final String baseUrl = "https://hostel-management-vorh.vercel.app/api";
   // final String baseUrl = "http://192.168.18.253:5000/api";
 
   // final String baseUrl = "http://192.168.18.253:5000/api";
@@ -1105,18 +1105,21 @@ class ApiService {
 
   /// fine management
 
-
-//  Dynamic Meal Cycle Date Boundary Query Method
+  //  Dynamic Meal Cycle Date Boundary Query Method
   Future<List<dynamic>> getBillsByDateRange({
-    required String startDateStr, 
+    required String startDateStr,
     required String endDateStr,
   }) async {
     try {
       // Constructs query string parameters: ?startDateStr=DD/MM/YYYY&endDateStr=DD/MM/YYYY
-      final response = await http.get(
-        Uri.parse("$baseUrl/fines/pending?startDateStr=$startDateStr&endDateStr=$endDateStr"),
-        headers: await _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      final response = await http
+          .get(
+            Uri.parse(
+              "$baseUrl/fines/pending?startDateStr=$startDateStr&endDateStr=$endDateStr",
+            ),
+            headers: await _getHeaders(),
+          )
+          .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         return json.decode(response.body)['data'] ?? [];
@@ -1235,8 +1238,7 @@ class ApiService {
         urlPath += '?startDateStr=$startDateStr&endDateStr=$endDateStr';
       }
 
-    print("GetSumary date ${startDateStr} ${endDateStr} URi ${urlPath}");
-
+      print("GetSumary date ${startDateStr} ${endDateStr} URi ${urlPath}");
 
       final response = await http.get(
         Uri.parse(urlPath),
@@ -1462,12 +1464,15 @@ class ApiService {
   }
 
   //================== Shopping List api for manager=========================//
-  Future<Map<String, dynamic>> getShoppingList() async {
+  Future<Map<String, dynamic>> getShoppingList({
+    required String startDateStr,
+    required String endDateStr,
+  }) async {
     try {
       final response = await http.get(
         Uri.parse(
-          "$baseUrl/shopping-list",
-        ), // Ensure this matches your backend route
+          "$baseUrl/shopping-list?startDateStr=$startDateStr&endDateStr=$endDateStr",
+        ),
         headers: await _getHeaders(),
       );
       if (response.statusCode == 200) {

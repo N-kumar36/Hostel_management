@@ -1,8 +1,13 @@
 import ShoppingItem from "../models/shopping.model.js";
+import Meal from "../models/Meal.js";
+import StudentSubscription from "../models/StudentSubscription.js";
+import Fine from "../models/fine.model.js";
+import mongoose from "mongoose";
 import moment from "moment-timezone";
 
-
-
+/**
+ * @desc    Helper utility to calculate budget matching the current live 1-60 meal cycle window
+ */
 const calculateCurrentCycleBudget = async (hostelId) => {
     try {
         // 1. Fetch dates under the current running 1-60 meal block
@@ -54,11 +59,67 @@ const calculateCurrentCycleBudget = async (hostelId) => {
 };
 
 /**
+ * @desc    Helper utility to calculate cycle budget for any specific historical or past cycle date bounds
+ */
+const calculateCycleBudgetByDateRange = async (hostelId, startDateStr, endDateStr) => {
+    try {
+        const startMoment = moment.tz(startDateStr, "DD/MM/YYYY", "Asia/Kolkata").startOf('day');
+        const endMoment = moment.tz(endDateStr, "DD/MM/YYYY", "Asia/Kolkata").endOf('day');
+
+        // Fetch meals belonging to this hostel and filter matching day blocks
+        const meals = await Meal.find({ hostelId }).lean();
+        const activeMeals = meals.filter(m => {
+            const mealMoment = moment.tz(m.date, "DD/MM/YYYY", "Asia/Kolkata");
+            return mealMoment.isSameOrAfter(startMoment) && mealMoment.isSameOrBefore(endMoment);
+        });
+
+        const activeDates = activeMeals.map(m => m.date);
+
+        // Fetch subscriptions created during this cycle timeframe
+        const subscriptionsInPeriod = await StudentSubscription.find({
+            hostelId: hostelId,
+            createdAt: {
+                $gte: startMoment.toDate(),
+                $lte: endMoment.toDate()
+            }
+        }).select("_id");
+
+        const subIds = subscriptionsInPeriod.map(sub => sub._id);
+
+        // Aggregate successful payments linked to these cycle subscriptions
+        const collectedFines = await Fine.aggregate([
+            {
+                $match: {
+                    hostelId: new mongoose.Types.ObjectId(hostelId),
+                    subscriptionId: { $in: subIds },
+                    status: "success"
+                }
+            },
+            {
+                $group: {
+                    _id: null,
+                    totalCollected: { $sum: "$amount" }
+                }
+            }
+        ]);
+
+        const collectedFineFunds = collectedFines.length > 0 ? collectedFines[0].totalCollected : 0;
+
+        return {
+            activeDates,
+            collectedFineFunds
+        };
+    } catch (error) {
+        console.error("Budget date range tracking error:", error);
+        throw error;
+    }
+};
+
+/**
  * @desc    Helper utility to generate formatted server date-time string
  * @returns {String} e.g., "18 Jun 2026, 12:59 AM"
  */
 const getServerFormattedDateTime = () => {
-    // Standardizes string creation via moment-timezone matching your server profile context
     return moment().tz("Asia/Kolkata").format("DD MMM YYYY, hh:mm A");
 };
 
@@ -70,12 +131,20 @@ const getServerFormattedDateTime = () => {
 export const createShoppingList = async (req, res) => {
     try {
         const { name, description, price, isBought } = req.body;
-        const { hostelId } = req.user;
+        const hostelId = req.user?.hostelId;
+        const userId = req.user?._id || req.user?.id;
 
         if (!hostelId) {
             return res.status(400).json({
                 success: false,
                 message: "Hostel context missing from user authentication token.",
+            });
+        }
+
+        if (!userId) {
+            return res.status(401).json({
+                success: false,
+                message: "Unauthorized. Session context missing.",
             });
         }
 
@@ -94,14 +163,18 @@ export const createShoppingList = async (req, res) => {
             price: Number(price),
             isBought: isBought || false,
             dateTime: serverDateTime,
-            createdBy: req.user._id,
-            hostelId: req.user.hostelId,
+            createdBy: userId,
+            hostelId: hostelId,
         });
+
+        const populatedItem = await ShoppingItem.findById(newItem._id)
+            .populate("createdBy", "name")
+            .lean();
 
         res.status(201).json({
             success: true,
             message: "Item added to mess procurement list successfully.",
-            data: newItem,
+            data: populatedItem,
         });
     } catch (error) {
         res.status(500).json({
@@ -128,33 +201,44 @@ export const getShoppingList = async (req, res) => {
             });
         }
 
-        // 1. Get live cycle metrics and income from successful student collections
-        const { activeDates, collectedFineFunds } = await calculateCurrentCycleBudget(hostelId);
+        const { startDateStr, endDateStr } = req.query;
 
-        // 2. Fetch all raw items belonging to this hostel
+        let activeDates = [];
+        let collectedFineFunds = 0;
+
+        // Determine cycle parameters based on client query
+        if (startDateStr && endDateStr && startDateStr !== 'null' && endDateStr !== 'null') {
+            const result = await calculateCycleBudgetByDateRange(hostelId, startDateStr, endDateStr);
+            activeDates = result.activeDates;
+            collectedFineFunds = result.collectedFineFunds;
+        } else {
+            const result = await calculateCurrentCycleBudget(hostelId);
+            activeDates = result.activeDates;
+            collectedFineFunds = result.collectedFineFunds;
+        }
+
+        // Fetch all raw items belonging to this hostel
         const allItems = await ShoppingItem.find({ hostelId })
             .populate("createdBy", "name")
             .sort({ createdAt: -1 });
 
-        // 3. Filter items matching your specific string date layout using Moment safely
+        // Filter items matching your specific string date layout using Moment safely
         const filteredItems = allItems.filter((item) => {
             if (!item.dateTime) return false;
 
             // Extract "18 Jun 2026" from "18 Jun 2026, 12:59 AM" safely
             const cleanItemDateStr = item.dateTime.split(",")[0].trim();
 
-            // Parse custom formats by supplying explicit mapping arguments to Moment
             const itemMoment = moment.tz(cleanItemDateStr, "DD MMM YYYY", "Asia/Kolkata");
             if (!itemMoment.isValid()) return false;
 
             return activeDates.some((mealDateStr) => {
-                // Safely translate "18/06/2026" to compare day blocks across structural timestamps
                 const mealMoment = moment.tz(mealDateStr, "DD/MM/YYYY", "Asia/Kolkata");
-                return itemMoment.isSame(mealMoment, 'day'); // Precise calendar day comparison logic
+                return itemMoment.isSame(mealMoment, 'day');
             });
         });
 
-        // 4. Calculate total money spent on bought items
+        // Calculate total money spent on bought items
         const totalSpentOnItems = filteredItems
             .filter(item => item.isBought === true)
             .reduce((sum, item) => sum + (item.price || 0), 0);
