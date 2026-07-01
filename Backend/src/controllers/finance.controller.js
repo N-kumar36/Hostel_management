@@ -10,6 +10,11 @@ import { getActiveMealsAndConsumption, getStudentFinesAndUsage, getProcurementEx
 
 
 
+/**
+ * @desc    Get structural meal cycle bounds including cancelled day offsets
+ * @route   GET /api/finance/meal-cycle-bounds
+ * @access  Private (Manager/Student)
+ */
 export const getFinanceData = async (req, res) => {
     try {
         const hostelId = req.user.hostelId;
@@ -17,6 +22,7 @@ export const getFinanceData = async (req, res) => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
+        // Fetch up to 90 historical meals to parse structural cycle boundaries
         const meals = await Meal.find({ hostelId: hostelId })
             .select("date morning.mealsNum night.mealsNum")
             .sort({ _id: -1 }) 
@@ -26,44 +32,80 @@ export const getFinanceData = async (req, res) => {
             return res.status(200).json({ success: true, cycles: [] });
         }
 
-        //  OPTIMIZATION 2: Reverse back to chronological order once instead of sorting from scratch
+        // 1. Map all meals chronologically, extracting structural sequence counts
         const chronologicalMeals = meals.reverse().map(m => {
             const [day, month, year] = m.date.split("/");
+            const morningNum = parseInt(m.morning?.mealsNum || "0", 10);
+            const nightNum = parseInt(m.night?.mealsNum || "0", 10);
+            
+            // Safe fallbacks: target the latest active meal of the day chronologically
+            let dayMealsNum = 0;
+            if (nightNum > 0) {
+                dayMealsNum = nightNum;
+            } else if (morningNum > 0) {
+                dayMealsNum = morningNum;
+            }
+
             return {
                 originalStr: m.date,
-                timestamp: new Date(`${year}-${month}-${day}`),
-                mealsNum: parseInt(m.morning?.mealsNum || m.night?.mealsNum || "0")
+                timestamp: new Date(`${year}-${month}-${day}T00:00:00.000Z`),
+                morningNum,
+                nightNum,
+                mealsNum: dayMealsNum
             };
         });
 
         const rawCycles = [];
         let currentCycleList = [];
+        let lastActiveMealsNum = 0;
 
-        // Group into cycle arrays based on cycle reset markers
+        // 2. Group meals into cycle arrays (including cancelled mealsNum === 0 days)
         for (let i = 0; i < chronologicalMeals.length; i++) {
             const currentItem = chronologicalMeals[i];
-            if (currentItem.mealsNum === 0) continue;
 
             if (currentCycleList.length > 0) {
-                const lastItem = currentCycleList[currentCycleList.length - 1];
-                if (currentItem.mealsNum < lastItem.mealsNum || currentItem.mealsNum === 1) {
+                // 🌟 Trigger a new cycle boundary push if:
+                // a) Current meal explicitly resets to 1 AND the current cycle has active logs
+                const isNewCycleExplicitReset = currentItem.mealsNum === 1 && lastActiveMealsNum > 0;
+                
+                // b) Current meal rolls back to a lower number than the last active meal
+                const isNewCycleRollback = currentItem.mealsNum > 0 && currentItem.mealsNum < lastActiveMealsNum;
+                
+                // c) The last active meal number has met or exceeded the 60-meal structural threshold
+                const isNewCycleLimitReached = lastActiveMealsNum >= 60;
+
+                if (isNewCycleExplicitReset || isNewCycleRollback || isNewCycleLimitReached) {
                     rawCycles.push([...currentCycleList]);
                     currentCycleList = [];
+                    lastActiveMealsNum = 0;
                 }
             }
+
             currentCycleList.push(currentItem);
+
+            if (currentItem.mealsNum > 0) {
+                lastActiveMealsNum = currentItem.mealsNum;
+            }
         }
+        
         if (currentCycleList.length > 0) {
             rawCycles.push([...currentCycleList]);
         }
 
-        // Map and identify active cycle blocks
+        // 3. Compile and map cycles with active statuses and correct boundaries
         const compiledCycles = rawCycles.map((cycleDays, index) => {
             const firstDay = cycleDays[0];
             const lastDay = cycleDays[cycleDays.length - 1];
             const cycleIndex = index + 1;
 
-            const isTodayInsideCycle = today >= firstDay.timestamp && today <= lastDay.timestamp;
+            // Safe calendar midnight boundaries
+            const firstTimestamp = new Date(firstDay.timestamp);
+            firstTimestamp.setHours(0, 0, 0, 0);
+
+            const lastTimestamp = new Date(lastDay.timestamp);
+            lastTimestamp.setHours(23, 59, 59, 999);
+
+            const isTodayInsideCycle = today >= firstTimestamp && today <= lastTimestamp;
 
             let label = `Cycle ${cycleIndex} (${firstDay.originalStr} to ${lastDay.originalStr})`;
             if (isTodayInsideCycle) {
@@ -79,6 +121,7 @@ export const getFinanceData = async (req, res) => {
             };
         });
 
+        // Ensure at least one cycle is marked active (fallback to newest)
         const hasActive = compiledCycles.some(c => c.isCurrentActive);
         if (!hasActive && compiledCycles.length > 0) {
             compiledCycles[compiledCycles.length - 1].isCurrentActive = true;
@@ -90,11 +133,13 @@ export const getFinanceData = async (req, res) => {
         });
 
     } catch (error) {
-        res.status(500).json({ success: false, message: "Error calculating real-time active cycles.", error: error.message });
+        res.status(500).json({ 
+            success: false, 
+            message: "Error calculating real-time active cycles.", 
+            error: error.message 
+        });
     }
 };
-
-
 
 
 

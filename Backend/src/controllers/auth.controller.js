@@ -100,7 +100,7 @@ export const registerUser = async (req, res) => {
 
     // Determine Role and Approval Status
     let role = "student";
-    let userStatus = "pending";
+    let userStatus = "unverified";
 
     if (userCountInHostel <= 1) { // If no users or only 1 user exists, make this user a manager
       role = "admin";
