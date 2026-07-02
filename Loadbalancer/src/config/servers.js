@@ -1,7 +1,7 @@
 export const servers = [
     {
         id: 1,
-        url: "https://hostel-management-rouge-six.vercel.app",
+        url: "https://hostel-app-backend.vercel.app/",
         active: true
     },
     {
@@ -11,7 +11,7 @@ export const servers = [
     },
     {
         id: 3,
-        url: "https://hostel-app-backend.vercel.app/",
+        url: "https://hostel-management-rouge-six.vercel.app",
         active: true
-    },
+    }
 ];
