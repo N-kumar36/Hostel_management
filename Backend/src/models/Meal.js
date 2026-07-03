@@ -1,6 +1,5 @@
 import mongoose from "mongoose";
 
-
 // --- 1. Embedded Student Personal Vote Sub-Schema ---
 const embeddedStudentVoteSchema = new mongoose.Schema({
   userId: {
@@ -21,7 +20,7 @@ const embeddedStudentVoteSchema = new mongoose.Schema({
   votedAt: { type: Date, default: Date.now },
   isServed: { type: Boolean, default: false },
 
-  //  FIX: Diubah menjadi array object history untuk mencatat log aktivitas pelayanan manager
+  // Log tracking to save historic server entries cleanly
   servedByHistory: [
     {
       managerId: {
@@ -31,7 +30,7 @@ const embeddedStudentVoteSchema = new mongoose.Schema({
       },
       action: {
         type: String,
-        enum: ["serve", "unserve"], // Mencatat apakah dia menyajikan atau membatalkan
+        enum: ["serve", "unserve"],
         required: true
       },
       changedAt: {
@@ -40,7 +39,7 @@ const embeddedStudentVoteSchema = new mongoose.Schema({
       }
     }
   ],
-  servedAt: Date // Menyimpan tanggal penyajian terakhir rill
+  servedAt: Date
 });
 
 // --- 2. Embedded Guest Request Sub-Schema ---
@@ -115,5 +114,8 @@ const dailyMealSchema = new mongoose.Schema(
 dailyMealSchema.index({ hostelId: 1, date: 1 }, { unique: true });
 dailyMealSchema.index({ hostelId: 1, date: 1, "morning.studentVotes.userId": 1 }, { unique: true, sparse: true });
 dailyMealSchema.index({ hostelId: 1, date: 1, "night.studentVotes.userId": 1 }, { unique: true, sparse: true });
+
+// TTL Index: MongoDB automatically purges documents older than 100 days (100 * 24 * 60 * 60 = 8,640,000 seconds)
+dailyMealSchema.index({ createdAt: 1 }, { expireAfterSeconds: 8640000 });
 
 export default mongoose.models.Meal || mongoose.model("Meal", dailyMealSchema);

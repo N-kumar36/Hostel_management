@@ -1,5 +1,5 @@
-import FinePrice from "../../models/FinePrice.js"; 
-import StudentSubscription from "../../models/StudentSubscription.js"; 
+import FinePrice from "../../models/FinePrice.js";
+import StudentSubscription from "../../models/StudentSubscription.js";
 
 /**
  * Normalizes different variations of menu text to match finePrice schema keys

@@ -6,15 +6,21 @@ import StudentSubscription from "../../models/StudentSubscription.js";
  */
 export const handleFineAccounting = async ({
   isNowServed, studentId, activeManagerId, currentHostelId, 
-  subscriptionKey, finalBilledAmount, forceFineBilling, fineReasonDescription, subscription
+  subscriptionKey, baseMenuKey, finalBilledAmount, forceFineBilling, fineReasonDescription, subscription
 }) => {
   let fineGenerated = false;
 
   if (isNowServed) {
+    // Determine dynamic max allowed limits reflecting active real-time updates
     const currentUsage = subscription?.usage?.[subscriptionKey] || 0;
     const maxAllowed = subscription?.maxLimits?.[subscriptionKey] || 0;
 
-    if (forceFineBilling || currentUsage >= maxAllowed) {
+    // Check if a dynamic swap is possible (so they won't get fined)
+    const isSwapEligible = subscriptionKey !== baseMenuKey && subscriptionKey !== "veg" && baseMenuKey !== "veg";
+    const canSwap = isSwapEligible && (subscription?.maxLimits?.[baseMenuKey] || 0) > 0;
+
+    // Only apply fine if they are out of alternative limits AND cannot swap/borrow from base menu
+    if ((forceFineBilling || currentUsage >= maxAllowed) && !canSwap) {
       await Fine.create({
         studentId,
         managerId: activeManagerId, 
@@ -44,36 +50,67 @@ export const handleFineAccounting = async ({
 /**
  * Handles package meal balancing, increments, or decrements atomically
  */
-export const syncSubscriptionQuota = async (subscription, isNowServed, subscriptionKey, forceFineBilling) => {
-  if (!forceFineBilling && subscription && (subscription.status === "active" || subscription.status === "pending")) {
-    const incValue = isNowServed ? 1 : -1;
-    
-    if (!(!isNowServed && (subscription.usage[subscriptionKey] || 0) <= 0)) {
-      const updatedSub = await StudentSubscription.findByIdAndUpdate(
-        subscription._id,
-        { $set: { [`usage.${subscriptionKey}`]: (subscription.usage[subscriptionKey] || 0) + incValue } },
-        { new: true }
-      );
+export const syncSubscriptionQuota = async (subscription, isNowServed, subscriptionKey, baseMenuKey, forceFineBilling) => {
+  if (forceFineBilling || !subscription || (subscription.status !== "active" && subscription.status !== "pending")) {
+    // Restore active state if completed and we are unserving
+    if (!isNowServed && subscription && forceFineBilling && subscription.status === "completed") {
+      const totalUsedNow = ["veg", "chicken", "fish", "egg", "paneer", "mutton"]
+        .reduce((sum, key) => sum + (subscription.usage[key] || 0), 0);
 
-      if (updatedSub) {
-        const totalUsedNow = ["veg", "chicken", "fish", "egg", "paneer", "mutton"]
-          .reduce((sum, key) => sum + (updatedSub.usage[key] || 0), 0);
+      const purchaseDate = new Date(subscription.createdAt);
+      const differenceInDays = (Date.now() - purchaseDate.getTime()) / (1000 * 3600 * 24);
 
-        if (totalUsedNow >= updatedSub.totalMealsBought) {
-          await StudentSubscription.updateOne({ _id: subscription._id }, { $set: { status: "completed" } });
-        }
+      if (totalUsedNow < subscription.totalMealsBought && differenceInDays <= 60) {
+        await StudentSubscription.updateOne({ _id: subscription._id }, { $set: { status: "active" } });
       }
     }
-  } else if (!isNowServed && subscription && forceFineBilling && subscription.status === "completed") {
-    const totalUsedNow = ["veg", "chicken", "fish", "egg", "paneer", "mutton"]
-      .reduce((sum, key) => sum + (subscription.usage[key] || 0), 0);
+    return;
+  }
 
-    const purchaseDate = new Date(subscription.createdAt);
-    const differenceInDays = (Date.now() - purchaseDate.getTime()) / (1000 * 3600 * 24);
+  const usageInc = isNowServed ? 1 : -1;
+  const updateQuery = { $inc: {} };
 
-    if (totalUsedNow < subscription.totalMealsBought && differenceInDays <= 60) {
-      await StudentSubscription.updateOne({ _id: subscription._id }, { $set: { status: "active" } });
+  // Alternate preference limit swapping (e.g. transfer limit from chicken -> egg)
+  // Swapping rules: alternative chosen, neither key is veg, and max values stay >= 0
+  const isSwapEligible = subscriptionKey !== baseMenuKey && subscriptionKey !== "veg" && baseMenuKey !== "veg";
+
+  if (isSwapEligible) {
+    if (isNowServed) {
+      const baseMax = subscription.maxLimits?.[baseMenuKey] || 0;
+      if (baseMax > 0) {
+        // Decrement base limit by 1, increment alternative limit by 1
+        updateQuery.$inc[`maxLimits.${baseMenuKey}`] = -1;
+        updateQuery.$inc[`maxLimits.${subscriptionKey}`] = 1;
+        console.log(`[QUOTA SWAP] Transferring 1 limit token from ${baseMenuKey} to ${subscriptionKey}`);
+      }
+    } else {
+      const chosenMax = subscription.maxLimits?.[subscriptionKey] || 0;
+      if (chosenMax > 0) {
+        // Reverse swap: decrement alternative limit by 1, increment base limit by 1
+        updateQuery.$inc[`maxLimits.${subscriptionKey}`] = -1;
+        updateQuery.$inc[`maxLimits.${baseMenuKey}`] = 1;
+        console.log(`[QUOTA SWAP REVERSAL] Restoring 1 limit token from ${subscriptionKey} to ${baseMenuKey}`);
+      }
+    }
+  }
+
+  // Handle standard usage increment/decrement
+  if (!(!isNowServed && (subscription.usage[subscriptionKey] || 0) <= 0)) {
+    updateQuery.$inc[`usage.${subscriptionKey}`] = usageInc;
+
+    const updatedSub = await StudentSubscription.findByIdAndUpdate(
+      subscription._id,
+      updateQuery,
+      { new: true }
+    );
+
+    if (updatedSub) {
+      const totalUsedNow = ["veg", "chicken", "fish", "egg", "paneer", "mutton"]
+        .reduce((sum, key) => sum + (updatedSub.usage[key] || 0), 0);
+
+      if (totalUsedNow >= updatedSub.totalMealsBought) {
+        await StudentSubscription.updateOne({ _id: subscription._id }, { $set: { status: "completed" } });
+      }
     }
   }
 };
-
