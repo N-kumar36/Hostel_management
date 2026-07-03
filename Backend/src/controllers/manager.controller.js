@@ -129,7 +129,7 @@ export const pendingStudent = async (req, res) => {
       .sort({ createdAt: -1 });
 
     if (!students || students.length === 0) {
-      return res.status(404).json({
+      return res.status(401).json({
         success: false,
         message: "No pending or unverified students found for this hostel"
       });
