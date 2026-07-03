@@ -15,7 +15,7 @@ import FineRoute from "./routes/fine.routes.js";
 import guestMealRoutes from "./routes/guestMeal.routes.js";
 import userRouter from "./routes/user.route.js";
 import upiRoute from "./routes/upi.route.js"
-import MealPlanRouter from "./routes/mealPlan.route.js";
+import MealPlanRouter from "./routes/mealPlan.route.js"; 
 import shoppingRouter from "./routes/shopping.router.js";
 import notificationRoutes from "./routes/notification.routes.js";
 

@@ -1,49 +1,57 @@
-import axios from "axios";
+import { createProxyMiddleware } from "http-proxy-middleware";
 
-export const proxyRequest = async (req, res) => {
+export const proxyRequest = (req, res, next) => {
     const servers = req.serversPool;
-
-    for (const server of servers) {
-        try {
-            console.log(`🔄 Routing -> Server ${server.id} (${server.url})`);
-
-            const response = await axios({
-                method: req.method,
-                url: `${server.url}${req.originalUrl}`,
-                data: req.body,
-                timeout: 8000,
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: req.headers.authorization || "",
-                }
-            });
-
-            console.log(` Request processed successfully by Server ${server.id}`);
-            return res.status(response.status).json(response.data);
-
-        } catch (err) {
-            console.log(` Server ${server.id} encountered an issue`);
-
-            if (err.response) {
-                const status = err.response.status;
-                console.log(` Server ${server.id} returned HTTP ${status}`);
-
-                if (status === 404 || status >= 500) {
-                    console.log(`⏭️ Skipping Server ${server.id} and trying next backup server...`);
-                    continue;
-                }
-
-                return res.status(status).json(err.response.data);
-            }
-
-            // True network failure or connection timeout. Loop continues automatically.
-            console.log(`💔 Infrastructure Failure on ${server.id}: ${err.message}`);
-        }
+    
+    if (!servers || servers.length === 0) {
+        return res.status(503).json({ success: false, message: "No active backends found." });
     }
 
-    // This triggers only if EVERY server in the pool threw a 404, 5xx, or timed out
-    return res.status(503).json({
-        success: false,
-        message: "All operational backends failed to serve this request (Timeouts/404s/500s)."
-    });
+    let serverIndex = 0;
+
+    const tryNextServer = () => {
+        if (serverIndex >= servers.length) {
+            return res.status(503).json({
+                success: false,
+                message: "All operational backends failed to serve this request (Timeouts/Failures)."
+            });
+        }
+
+        const currentServer = servers[serverIndex];
+        console.log(`🔄 Routing -> Server ${currentServer.id} (${currentServer.url})`);
+
+        // Create a dynamic proxy instance for this server
+        const proxy = createProxyMiddleware({
+            target: currentServer.url,
+            changeOrigin: true, // Crucial for Vercel deployment targets
+            proxyTimeout: 15000, 
+            timeout: 15000,
+            on: {
+                proxyReq: (proxyReq, req, res) => {
+                    // Forward authorization headers if they exist
+                    if (req.headers.authorization) {
+                        proxyReq.setHeader("Authorization", req.headers.authorization);
+                    }
+                    
+                    // If express.json() already parsed the body, we need to restream it
+                    if (req.body && Object.keys(req.body).length > 0 && !req.headers["content-type"]?.includes("multipart/form-data")) {
+                        const bodyData = JSON.stringify(req.body);
+                        proxyReq.setHeader('Content-Type', 'application/json');
+                        proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
+                        proxyReq.write(bodyData);
+                    }
+                },
+                error: (err, req, res) => {
+                    console.log(`⚠️ Server ${currentServer.id} encountered an issue: ${err.message}`);
+                    serverIndex++;
+                    tryNextServer(); // Fallback to the next backup server automatically
+                }
+            }
+        });
+
+        // Execute the proxy
+        proxy(req, res, next);
+    };
+
+    tryNextServer();
 };
