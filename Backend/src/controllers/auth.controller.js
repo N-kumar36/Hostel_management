@@ -76,13 +76,8 @@ export const registerUser = async (req, res) => {
   } = req.body;
 
   try {
-    // 1. OTP VALIDATION
-    const otpRecord = await Otp.findOne({ email: email.toLowerCase() });
-    if (!otpRecord || otpRecord.otp !== otp) {
-      return res.status(400).json({ success: false, message: "Invalid OTP" });
-    }
 
-    // 2. DUPLICATE CHECK
+    // 1. DUPLICATE CHECK
     const existingUser = await User.findOne({
       $or: [{ email: email.toLowerCase() }, { regNum }]
     });
@@ -93,6 +88,12 @@ export const registerUser = async (req, res) => {
         success: false,
         message: `${conflictField} is already registered.`
       });
+    }
+
+    // 2. OTP VALIDATION
+    const otpRecord = await Otp.findOne({ email: email.toLowerCase() });
+    if (!otpRecord || otpRecord.otp !== otp) {
+      return res.status(400).json({ success: false, message: "Invalid OTP" });
     }
 
     // 3. CHECK IF THIS IS THE FIRST USER FOR THIS HOSTEL

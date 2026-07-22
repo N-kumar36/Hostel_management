@@ -5,7 +5,6 @@ import 'package:intl/intl.dart';
 class DailyMenuCard extends StatefulWidget {
   const DailyMenuCard({super.key});
 
-  //  Expose the state class so Homepage can trigger fetchTodayData via GlobalKey
   @override
   DailyMenuCardState createState() => DailyMenuCardState();
 }
@@ -23,14 +22,12 @@ class DailyMenuCardState extends State<DailyMenuCard> {
     fetchTodayData();
   }
 
-  //  Triggered when returning from another page
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     fetchTodayData();
   }
 
-  //  Made public (removed underscore) to allow manual trigger from Homepage
   Future<void> fetchTodayData() async {
     if (todayMeal == null) setState(() => isLoading = true);
 
@@ -41,7 +38,6 @@ class DailyMenuCardState extends State<DailyMenuCard> {
       if (weeklyData.containsKey(todayKey)) {
         todayMeal = weeklyData[todayKey];
 
-        // Fetch fresh status which includes 'morningServed' and 'nightServed'
         final statusRes = await api.checkVoteStatus(todayMeal!['_id']);
         if (statusRes['success'] == true) {
           setState(() {
@@ -86,17 +82,19 @@ class DailyMenuCardState extends State<DailyMenuCard> {
       if (currentlyVoted) {
         res = await api.cancelVote(todayMeal!['_id'], slot);
       } else {
-        // Standardized payload key
+        // ✨ FIX: Pass 'regular' or the base menu value properly as expected by backend
+        final String baseMenu = (todayMeal![slot]['manu'] ?? 'regular').toString();
+        
         res = await api.postVote({
-          "mealId": todayMeal!['_id'],
+          "mealId": todayMeal!['_id'].toString(),
           "timeSlot": slot,
-          "mealType": todayMeal![slot]['manu'],
+          "mealType": "regular", // Quick vote defaults to regular preference
         });
       }
 
       if (res['success'] == true) {
         _showSnackBar(res['message'] ?? "Action Successful", Colors.green);
-        await fetchTodayData(); // Re-fetch all statuses
+        await fetchTodayData();
       } else {
         _showSnackBar(res['message'] ?? "Action failed", Colors.red);
       }
@@ -120,8 +118,9 @@ class DailyMenuCardState extends State<DailyMenuCard> {
   @override
   Widget build(BuildContext context) {
     if (isLoading) return const Center(child: CircularProgressIndicator());
-    if (todayMeal == null)
+    if (todayMeal == null) {
       return const Center(child: Text("No menu set for today."));
+    }
 
     final morningStates = _getMealStates(todayMeal!['morning'], "morning");
     final nightStates = _getMealStates(todayMeal!['night'], "night");
@@ -139,14 +138,14 @@ class DailyMenuCardState extends State<DailyMenuCard> {
         children: [
           _menuRow(
             "Morning",
-            todayMeal!['morning']['manu'],
+            todayMeal!['morning']['manu'] ?? 'Veg',
             morningStates,
             Colors.orange,
           ),
           const Divider(height: 24),
           _menuRow(
             "Night",
-            todayMeal!['night']['manu'],
+            todayMeal!['night']['manu'] ?? 'Veg',
             nightStates,
             Colors.indigo,
           ),
@@ -168,11 +167,9 @@ class DailyMenuCardState extends State<DailyMenuCard> {
       meal['lockTime'] ?? "",
     );
 
-    // Check backend status keys (voted: true, isServed: true)
     final bool voted = voteStatus?[slot] == true;
     final bool isServed = voteStatus?['${slot}Served'] == true;
 
-    // Logic: Locked if expired, manually locked, or served
     final isLocked =
         (meal['isLocked'] == true) ||
         DateTime.now().isAfter(lockTime) ||
@@ -237,8 +234,8 @@ class DailyMenuCardState extends State<DailyMenuCard> {
                 s.isServed
                     ? "Meal consumed"
                     : (s.isLocked
-                          ? "Voting Closed"
-                          : "Ends at ${s.formattedTime}"),
+                        ? "Voting Closed"
+                        : "Ends at ${s.formattedTime}"),
                 style: TextStyle(
                   fontSize: 11,
                   color: (s.isLocked || s.isServed)
@@ -252,13 +249,13 @@ class DailyMenuCardState extends State<DailyMenuCard> {
         ElevatedButton(
           onPressed:
               (s.isLocked || s.isCancelled || s.isServed || isActionLoading)
-              ? null
-              : () => _handleVoteAction(
-                  label.toLowerCase(),
-                  s.voted,
-                  s.isLocked,
-                  s.isCancelled,
-                ),
+                  ? null
+                  : () => _handleVoteAction(
+                        label.toLowerCase(),
+                        s.voted,
+                        s.isLocked,
+                        s.isCancelled,
+                      ),
           style: ElevatedButton.styleFrom(
             backgroundColor: btnColor,
             foregroundColor: Colors.white,

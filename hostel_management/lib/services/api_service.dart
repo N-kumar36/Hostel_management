@@ -9,10 +9,10 @@ import 'package:intl/intl.dart';
 
 class ApiService {
   // final String baseUrl = "https://hostel-management-3e61.onrender.com/api";
-  final String baseUrl = "http://192.168.0.22:5001/api";
+  // final String baseUrl = "http://172.20.10.123:5000/api";
 
   // load balancer
-  // final String baseUrl = "https://hostel-management-vorh.vercel.app/api";
+  final String baseUrl = "https://hostel-management-vorh.vercel.app/api";
   // final String baseUrl = "http://192.168.18.253:5000/api";
 
   // final String baseUrl = "http://192.168.18.253:5000/api";
@@ -1132,14 +1132,22 @@ class ApiService {
   }
 
   // 2. Add a new method to approve/reject the bill
-  Future<bool> updateBillStatus(String billId, String status) async {
+  Future<bool> updateBillStatus(
+    String billId,
+    String status, {
+    String? paymentMethod,
+  }) async {
     try {
+      final Map<String, dynamic> payload = {"status": status};
+
+      if (paymentMethod != null) {
+        payload["paymentMethod"] = paymentMethod;
+      }
+
       final response = await http.put(
-        Uri.parse(
-          "$baseUrl/fines/$billId/status",
-        ), // Make sure you create this backend route
+        Uri.parse("$baseUrl/fines/$billId/status"),
         headers: await _getHeaders(),
-        body: json.encode({"status": status}),
+        body: json.encode(payload),
       );
       return response.statusCode == 200;
     } catch (e) {

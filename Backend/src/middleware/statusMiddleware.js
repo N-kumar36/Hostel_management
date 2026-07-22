@@ -1,19 +1,17 @@
-
-
 export const isApproved = (req, res, next) => {
-  // We assume 'protect' middleware has already run and attached the user to 'req.user'
+  // Assume 'protect' middleware attached 'req.user'
   if (!req.user) {
     return res.status(401).json({ success: false, message: "Authentication required" });
   }
 
-  // Check the 'pending' field from your User Model
-  if (req.user.pending === "pending") {
+  // Strictly allow ONLY "active" users
+  if (req.user.status !== "active") {
     return res.status(403).json({ 
       success: false, 
-      message: "Your account is pending approval from the hostel manager. You cannot perform this action yet." 
+      message: "Access restricted. Your account is not active." 
     });
   }
 
-  // If approved, move to the next function (controller)
+  // User is active, proceed to controller
   next();
 };

@@ -79,14 +79,20 @@ class _FinancialsPageState extends State<FinancialsPage> {
 
   Widget _buildFeeCard(dynamic fee) {
     final amount = fee['amount'].toString();
-    final status = fee['status']?.toString().toLowerCase() ?? 'pending';
+    
+    // Normalize potential status variations from the MongoDB database
+    final rawStatus = fee['status']?.toString().toLowerCase() ?? 'pending';
+    final isPending = rawStatus == 'pending';
+    final isProcessing = rawStatus == 'processing';
+    final isRejected = rawStatus == 'rejected' || rawStatus == 'reject';
+    final isSuccess = rawStatus == 'success' || rawStatus == 'approved';
 
     Color statusColor;
-    if (status == 'pending') {
+    if (isPending) {
       statusColor = Colors.orange;
-    } else if (status == 'processing') {
+    } else if (isProcessing) {
       statusColor = Colors.blue;
-    } else if (status == 'rejected') {
+    } else if (isRejected) {
       statusColor = Colors.red;
     } else {
       statusColor = Colors.green;
@@ -160,7 +166,7 @@ class _FinancialsPageState extends State<FinancialsPage> {
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
-                    status.toUpperCase(),
+                    isRejected ? "REJECTED" : rawStatus.toUpperCase(),
                     style: TextStyle(
                       color: statusColor,
                       fontWeight: FontWeight.bold,
@@ -168,19 +174,21 @@ class _FinancialsPageState extends State<FinancialsPage> {
                     ),
                   ),
                 ),
-                if (status == 'pending' || status == 'rejected')
+                
+                // 🌟 FIX: Allow "PAY NOW" or "TRY AGAIN" if status is pending OR rejected/reject
+                if (isPending || isRejected)
                   ElevatedButton(
                     onPressed: () => _showPaymentSheet(fee),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: status == 'rejected' ? Colors.redAccent : Colors.deepPurple,
+                      backgroundColor: isRejected ? Colors.redAccent : Colors.deepPurple,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
                     ),
-                    child: Text(status == 'rejected' ? "TRY AGAIN" : "PAY NOW"),
+                    child: Text(isRejected ? "TRY AGAIN" : "PAY NOW"),
                   )
-                else if (status == 'processing')
+                else if (isProcessing)
                   const Row(
                     children: [
                       Icon(Icons.access_time, size: 16, color: Colors.blue),
@@ -194,7 +202,7 @@ class _FinancialsPageState extends State<FinancialsPage> {
                       ),
                     ],
                   )
-                else if (status == 'success' || status == 'approved')
+                else if (isSuccess)
                   const Row(
                     children: [
                       Icon(Icons.check_circle, size: 16, color: Colors.green),
@@ -287,8 +295,6 @@ class _PaymentBottomSheetStateState extends State<_PaymentBottomSheet> {
 
     final Uri uri = Uri.parse(upiUrl);
     try {
-      // mode: LaunchMode.externalApplication prompts the Android system 
-      // sheet showing GPay, PhonePe, Paytm, etc.
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
       } else {
@@ -297,7 +303,7 @@ class _PaymentBottomSheetStateState extends State<_PaymentBottomSheet> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          const SnackBar(
             content: Text("Could not open UPI app. Please use 'Scan QR' mode."),
             backgroundColor: Colors.orange,
           ),
@@ -398,7 +404,6 @@ class _PaymentBottomSheetStateState extends State<_PaymentBottomSheet> {
               ),
             )
           else ...[
-            // Toggle Segment Selector
             Container(
               decoration: BoxDecoration(
                 color: Colors.grey[100],
@@ -453,7 +458,6 @@ class _PaymentBottomSheetStateState extends State<_PaymentBottomSheet> {
             ),
             const SizedBox(height: 25),
 
-            // Dynamic Content Pane based on selected tab
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 200),
               child: _payDirectlyMode

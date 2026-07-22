@@ -9,9 +9,10 @@ import moment from "moment";
 
 
 // import { fineUploadFirebase } from "../utils/uploadHelper.js"; // Ensure your uploader is imported
-
-
 import { fineUploadFirebase } from "../ConfigMultar/multar.control.js";
+
+
+
 
 //  Manager creates a fine for a student
 export const createFine = async (req, res) => {
@@ -19,7 +20,6 @@ export const createFine = async (req, res) => {
     const { studentId, title, amount, description } = req.body;
     const fine = await Fine.create({
       studentId,
-      managerId: req.user.id,
       hostelId: req.user.hostelId,
       title,
       amount,
@@ -108,7 +108,7 @@ export const getPendingFines = async (req, res) => {
 
     console.log("Received meal cycle parameters: ", startDateStr, "to", endDateStr);
 
-    // 🌟 Parse date parameters into standard MongoDB ISO Date formats
+    //  Parse date parameters into standard MongoDB ISO Date formats
     if (startDateStr && startDateStr !== 'null' && endDateStr && endDateStr !== 'null') {
       const [startDay, startMonth, startYear] = startDateStr.split("/");
       const [endDay, endMonth, endYear] = endDateStr.split("/");
@@ -151,52 +151,85 @@ export const getPendingFines = async (req, res) => {
 };
 
 // Manager approves or rejects a fine/bill
+
+
 export const updateFineStatus = async (req, res) => {
   try {
-    const { id } = req.params; // Matches $billId from your Dart code
-    const { status } = req.body; // 'success', 'rejected', 'processing', etc.
+    const { id } = req.params;
+    let { status, paymentMethod } = req.body;
 
-    // 1. Find and update the Fine document
+    const activeManagerId = req.user?._id || req.user?.id;
+    if (!activeManagerId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized. Session context missing."
+      });
+    }
+
+    if (status === 'rejected') {
+      status = 'reject';
+    }
+
+    const updatePayload = {
+      status: status,
+      managerId: activeManagerId
+    };
+
+    if (status === 'success') {
+      if (paymentMethod === 'Online' || paymentMethod === 'Offline') {
+        updatePayload.paymentMethod = paymentMethod;
+      } else {
+        updatePayload.paymentMethod = 'Offline';
+      }
+    } else if (status === 'reject') {
+      // Clear method parameter if transaction is reversed/rejected
+      updatePayload.paymentMethod = null;
+    }
+
     const updatedFine = await Fine.findByIdAndUpdate(
       id,
-      { status: status },
-      { new: true }
-    );
+      { $set: updatePayload },
+      { new: true, runValidators: true }
+    ).populate("managerId", "name");
 
     if (!updatedFine) {
       return res.status(404).json({
         success: false,
-        message: "Bill not found"
+        message: "Bill record not found."
       });
     }
 
-    // 2. (Optional but Recommended) Update linked subscription status
-    // If the manager rejects the payment, we should probably pause their meal plan
     if (updatedFine.isMealPackage && updatedFine.subscriptionId) {
       let subStatus = 'pending';
-      if (status === 'success') subStatus = 'active';
-      if (status === 'rejected') subStatus = 'pending'; // Revert to pending so they have to pay again
+
+      if (status === 'success') {
+        subStatus = 'active';
+      } else if (status === 'reject') {
+        subStatus = 'pending';
+      }
 
       await StudentSubscription.findByIdAndUpdate(
         updatedFine.subscriptionId,
-        { status: subStatus }
+        { $set: { status: subStatus } }
       );
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: `Bill marked as ${status}`,
+      message: `Bill record updated cleanly as ${status}`,
       data: updatedFine
     });
 
   } catch (error) {
-    console.error("Error updating fine status:", error);
-    res.status(500).json({
+    console.error("Fine status controller error:", error);
+    return res.status(500).json({
       success: false,
-      message: error.message
+      message: "Internal server error: " + error.message
     });
   }
 };
+
+
 export const updateFineStatusDelete = async (req, res) => {
   try {
     const { id } = req.params; // Matches fineId from your Dart code
@@ -211,13 +244,13 @@ export const updateFineStatusDelete = async (req, res) => {
       });
     }
 
-    // 2. ✨ SMART SYNC LOGIC: Delete orphaned subscription
+    // 2.  SMART SYNC LOGIC: Delete orphaned subscription
     // If this bill was for a meal plan, delete the pending meal plan too!
     // if (deletedFine.isMealPackage && deletedFine.subscriptionId) {
     //   await StudentSubscription.findByIdAndDelete(deletedFine.subscriptionId);
     // }
 
-    // 3. ✨ FIXED: Send the success response back to Flutter!
+    // 3.  FIXED: Send the success response back to Flutter!
     res.status(200).json({
       success: true,
       message: "Bill deleted successfully."
@@ -250,7 +283,7 @@ export const convertFineToSubscription = async (req, res) => {
 
     const currentMonth = moment().format("MMMM YYYY");
 
-    // ✨ 2. EXTRACT MEAL TYPE FROM FINE
+    //  2. EXTRACT MEAL TYPE FROM FINE
     const combinedText = ((fine.title || "") + " " + (fine.description || "")).toLowerCase();
     let consumedType = null;
     const mealTypes = ["veg", "egg", "paneer", "chicken", "fish", "mutton"];
@@ -280,7 +313,7 @@ export const convertFineToSubscription = async (req, res) => {
       }
       await subscription.save();
 
-      // 2. ✨ DELETE the fine entirely! They don't need a bill because their plan covers it.
+      // 2.  DELETE the fine entirely! They don't need a bill because their plan covers it.
       await Fine.findByIdAndDelete(fine._id);
 
       return res.status(200).json({

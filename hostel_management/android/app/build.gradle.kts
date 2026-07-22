@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.hostel_manas"
+    namespace = "com.example.hostel_management"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -20,7 +20,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.hostel_manas"
+        applicationId = "com.example.hostel_management"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
