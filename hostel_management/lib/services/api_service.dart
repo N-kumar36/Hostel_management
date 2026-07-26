@@ -1437,22 +1437,32 @@ class ApiService {
   }
 
   // Convert a Meal Package into a single Guest Meal / Fine
-  Future<bool> convertPackToGuestMeal(
-    String fineId,
-    Map<String, dynamic> data,
-  ) async {
+  Future<Map<String, dynamic>> convertPackToGuestMeal(String fineId) async {
     try {
+      final url = Uri.parse("$baseUrl/fines/$fineId/convert-to-guest");
+      final headers = await _getHeaders();
+
       final response = await http.post(
-        Uri.parse(
-          "$baseUrl/fines/$fineId/convert-to-guest",
-        ), // Ensure this matches your backend route
-        headers: await _getHeaders(),
-        body: json.encode(data),
+        url,
+        headers: headers,
+        body: json.encode({}),
       );
-      return response.statusCode == 200;
+
+      final Map<String, dynamic> resData = json.decode(response.body);
+
+      if (response.statusCode == 200 && resData['success'] == true) {
+        return {
+          "success": true,
+          "message": resData['message'] ?? "Converted successfully!",
+        };
+      } else {
+        return {
+          "success": false,
+          "message": resData['message'] ?? "Failed to convert meal package.",
+        };
+      }
     } catch (e) {
-      debugPrint("Convert to Guest Meal Error: $e");
-      return false;
+      return {"success": false, "message": "Network error: ${e.toString()}"};
     }
   }
 

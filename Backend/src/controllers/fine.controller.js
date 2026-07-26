@@ -371,56 +371,49 @@ export const convertFineToSubscription = async (req, res) => {
 // ==========================================
 // CONVERT MEAL PACK TO INDIVIDUAL GUEST MEALS
 // ==========================================
+
 export const convertMealPackToGuestMeal = async (req, res) => {
   try {
-    const { id } = req.params; // Original Fine ID
+    const { id } = req.params; // Fine ID
     const hostelId = req.user.hostelId;
     const managerId = req.user._id || req.user.id;
 
-    // 1. Find the original Fine
+    // 1. Find the target Fine
     const originalFine = await Fine.findOne({ _id: id, hostelId });
     if (!originalFine) {
       return res.status(404).json({ success: false, message: "Bill not found" });
     }
+
     if (!originalFine.isMealPackage) {
       return res.status(400).json({ success: false, message: "This is already a regular bill." });
     }
 
-    if (!originalFine.subscriptionId) {
-      // Edge case: No subscription attached. Delete orphaned bill.
-      await Fine.findByIdAndDelete(id);
-      return res.status(200).json({
-        success: true,
-        message: "Package cancelled (no active subscription found)."
-      });
+    // 2. Fetch Price Menu for Guest Calculations
+    const priceList = await FinePrice.findOne({ hostelId });
+    const defaultPrices = { veg: 35, egg: 45, paneer: 45, chicken: 65, fish: 55, mutton: 85 };
+    const prices = (priceList && priceList.prices) ? { ...defaultPrices, ...priceList.prices } : defaultPrices;
+
+    // 3. Try to locate the subscription document safely
+    let subscription = null;
+    if (originalFine.subscriptionId) {
+      subscription = await StudentSubscription.findById(originalFine.subscriptionId);
     }
 
-    // 2. Fetch Subscription and Prices
-    const subscription = await StudentSubscription.findById(originalFine.subscriptionId);
-    const priceList = await FinePrice.findOne({ hostelId });
-
-    // Ensure fallback safety if DB price config is missing keys
-    const defaultPrices = { veg: 35, egg: 45, paneer: 45, chicken: 65, fish: 55, mutton: 85 };
-    const prices = priceList && priceList.prices ? { ...defaultPrices, ...priceList.prices } : defaultPrices;
-
+    // 4. Process usage IF subscription exists
     if (subscription && subscription.usage) {
       const u = subscription.usage;
       const mealTypes = ['veg', 'egg', 'paneer', 'chicken', 'fish', 'mutton'];
 
-      // 3. Create INDIVIDUAL fines for each consumed meal type
       for (const type of mealTypes) {
         const count = Number(u[type]) || 0;
         if (count > 0) {
           const unitPrice = Number(prices[type]) || 0;
-          const cost = count * unitPrice;
-          const typeName = type.charAt(0).toUpperCase() + type.slice(1);
-
           await Fine.create({
             studentId: originalFine.studentId,
             managerId: managerId,
             hostelId: hostelId,
-            title: `Guest Meal - ${count} ${typeName}`,
-            amount: cost,
+            title: `Guest Meal - ${count} ${type.toUpperCase()}`,
+            amount: count * unitPrice,
             description: `Converted from cancelled meal package. Consumed ${count} plates at ₹${unitPrice} each.`,
             isMealPackage: false,
             status: "pending"
@@ -428,16 +421,16 @@ export const convertMealPackToGuestMeal = async (req, res) => {
         }
       }
 
-      // 4. Delete the subscription entirely
+      // Delete the active subscription
       await StudentSubscription.findByIdAndDelete(subscription._id);
     }
 
-    // 5. Delete the original meal package fine
+    // 5. Delete the original meal package fine regardless
     await Fine.findByIdAndDelete(originalFine._id);
 
     return res.status(200).json({
       success: true,
-      message: "Successfully converted to individual guest meal bills!"
+      message: "Meal package cancelled and converted successfully!"
     });
 
   } catch (error) {

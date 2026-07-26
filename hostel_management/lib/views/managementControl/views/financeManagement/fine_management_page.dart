@@ -461,9 +461,10 @@ class _FineManagementPageState extends State<FineManagementPage> {
 
   void _executeGuestConversion(
     String billId,
-    StateSetter setDialogState,
+    StateSetter setParentState,
     BuildContext dialogContext,
   ) async {
+    // 1. Confirmation Dialog
     bool? confirm = await showDialog<bool>(
       context: dialogContext,
       builder: (dialogCtx) => AlertDialog(
@@ -496,32 +497,28 @@ class _FineManagementPageState extends State<FineManagementPage> {
 
     if (confirm != true) return;
 
-    // Show loading spinner inside dialog
-    setDialogState(() => isLoading = true);
+    // 2. Set UI Loading State
+    setParentState(() => isLoading = true);
 
-    final success = await api.convertPackToGuestMeal(billId, {});
+    // 3. Clean API Service Call (NO raw HTTP or URL construction here)
+    final result = await api.convertPackToGuestMeal(billId);
 
-    if (mounted) {
-      Navigator.of(
-        dialogContext,
-        rootNavigator: true,
-      ).pop(); // Safely dismiss the dialog
-      if (success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Converted to guest meals successfully!"),
-            backgroundColor: Colors.green,
-          ),
-        );
-        _loadBills();
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Failed to convert meal package."),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+    if (!mounted) return;
+
+    // 4. Safely Dismiss Loading Dialog
+    Navigator.of(dialogContext, rootNavigator: true).pop();
+
+    // 5. Present UI Feedback
+    final bool isSuccess = result['success'] == true;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(result['message'] ?? "Operation completed."),
+        backgroundColor: isSuccess ? Colors.green : Colors.red,
+      ),
+    );
+
+    if (isSuccess) {
+      _loadBills();
     }
   }
 
