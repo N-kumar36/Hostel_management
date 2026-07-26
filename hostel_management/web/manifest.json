@@ -1,6 +1,6 @@
 {
-    "name": "hostel_manas",
-    "short_name": "hostel_manas",
+    "name": "hostel_management",
+    "short_name": "hostel_management",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

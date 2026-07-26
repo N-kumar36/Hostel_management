@@ -29,12 +29,24 @@ class _FineManagementPageState extends State<FineManagementPage> {
   String billSearchQuery = "";
 
   // --- MENU PRICE CONTROLLERS (Single Unit Prices for Fines) ---
-  final TextEditingController _vegPriceController = TextEditingController(text: "35");
-  final TextEditingController _eggPriceController = TextEditingController(text: "45");
-  final TextEditingController _paneerPriceController = TextEditingController(text: "45");
-  final TextEditingController _chickenPriceController = TextEditingController(text: "65");
-  final TextEditingController _fishPriceController = TextEditingController(text: "55");
-  final TextEditingController _muttonPriceController = TextEditingController(text: "85");
+  final TextEditingController _vegPriceController = TextEditingController(
+    text: "35",
+  );
+  final TextEditingController _eggPriceController = TextEditingController(
+    text: "45",
+  );
+  final TextEditingController _paneerPriceController = TextEditingController(
+    text: "45",
+  );
+  final TextEditingController _chickenPriceController = TextEditingController(
+    text: "65",
+  );
+  final TextEditingController _fishPriceController = TextEditingController(
+    text: "55",
+  );
+  final TextEditingController _muttonPriceController = TextEditingController(
+    text: "85",
+  );
 
   // --- PLAN A CONTROLLERS (1000 Rupee / Basic) ---
   final TextEditingController _planAPrice = TextEditingController(text: "1000");
@@ -120,7 +132,8 @@ class _FineManagementPageState extends State<FineManagementPage> {
       if (mounted) {
         setState(() {
           // 1. Parse Fine Prices Block
-          if (res['finePrices'] != null && res['finePrices']['prices'] != null) {
+          if (res['finePrices'] != null &&
+              res['finePrices']['prices'] != null) {
             final p = res['finePrices']['prices'];
             _vegPriceController.text = p['veg']?.toString() ?? "35";
             _eggPriceController.text = p['egg']?.toString() ?? "45";
@@ -299,7 +312,9 @@ class _FineManagementPageState extends State<FineManagementPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text("Bill marked as $newStatus"),
-            backgroundColor: newStatus == 'success' ? Colors.green : Colors.orange,
+            backgroundColor: newStatus == 'success'
+                ? Colors.green
+                : Colors.orange,
           ),
         );
         _loadBills();
@@ -414,7 +429,8 @@ class _FineManagementPageState extends State<FineManagementPage> {
         String sId = s['studentId'] is Map
             ? s['studentId']['_id']
             : s['studentId'].toString();
-        return sId == studentId && (s['status'] == 'active' || s['status'] == 'pending');
+        return sId == studentId &&
+            (s['status'] == 'active' || s['status'] == 'pending');
       }, orElse: () => null);
 
       final res = await api.getmealPackages();
@@ -428,10 +444,11 @@ class _FineManagementPageState extends State<FineManagementPage> {
         return;
       }
 
-      String planId = (existingSub != null && existingSub['mealsPlanId'] != null)
+      String planId =
+          (existingSub != null && existingSub['mealsPlanId'] != null)
           ? (existingSub['mealsPlanId'] is Map
-              ? existingSub['mealsPlanId']['_id']
-              : existingSub['mealsPlanId'].toString())
+                ? existingSub['mealsPlanId']['_id']
+                : existingSub['mealsPlanId'].toString())
           : availablePlans[0]['_id'].toString();
 
       final success = await api.convertFineToSub(bill['_id'], planId);
@@ -442,9 +459,13 @@ class _FineManagementPageState extends State<FineManagementPage> {
     }
   }
 
-  void _executeGuestConversion(String billId, StateSetter setParentState) async {
+  void _executeGuestConversion(
+    String billId,
+    StateSetter setDialogState,
+    BuildContext dialogContext,
+  ) async {
     bool? confirm = await showDialog<bool>(
-      context: context,
+      context: dialogContext,
       builder: (dialogCtx) => AlertDialog(
         title: const Row(
           children: [
@@ -454,7 +475,7 @@ class _FineManagementPageState extends State<FineManagementPage> {
           ],
         ),
         content: const Text(
-          "Are you sure you want to proceed? The student's monthly subscription will be permanently cancelled, and these new guest meal bills will be generated.",
+          "Are you sure you want to proceed? The student's monthly subscription will be permanently cancelled, and individual guest meal bills will be generated.",
         ),
         actions: [
           TextButton(
@@ -474,12 +495,33 @@ class _FineManagementPageState extends State<FineManagementPage> {
     );
 
     if (confirm != true) return;
-    setParentState(() => isLoading = true);
+
+    // Show loading spinner inside dialog
+    setDialogState(() => isLoading = true);
 
     final success = await api.convertPackToGuestMeal(billId, {});
+
     if (mounted) {
-      Navigator.pop(context); // Pops the parent conversion builder context safely
-      if (success) _loadBills();
+      Navigator.of(
+        dialogContext,
+        rootNavigator: true,
+      ).pop(); // Safely dismiss the dialog
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Converted to guest meals successfully!"),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _loadBills();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Failed to convert meal package."),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -547,10 +589,25 @@ class _FineManagementPageState extends State<FineManagementPage> {
     List<Map<String, dynamic>> breakdown = [
       {"name": "Veg", "used": vUsed, "price": vPrice, "total": vUsed * vPrice},
       {"name": "Egg", "used": eUsed, "price": ePrice, "total": eUsed * ePrice},
-      {"name": "Paneer", "used": pUsed, "price": pPrice, "total": pUsed * pPrice},
-      {"name": "Chicken", "used": cUsed, "price": cPrice, "total": cUsed * cPrice},
+      {
+        "name": "Paneer",
+        "used": pUsed,
+        "price": pPrice,
+        "total": pUsed * pPrice,
+      },
+      {
+        "name": "Chicken",
+        "used": cUsed,
+        "price": cPrice,
+        "total": cUsed * cPrice,
+      },
       {"name": "Fish", "used": fUsed, "price": fPrice, "total": fUsed * fPrice},
-      {"name": "Mutton", "used": mUsed, "price": mPrice, "total": mUsed * mPrice},
+      {
+        "name": "Mutton",
+        "used": mUsed,
+        "price": mPrice,
+        "total": mUsed * mPrice,
+      },
     ];
 
     if (!mounted) return;
@@ -641,16 +698,24 @@ class _FineManagementPageState extends State<FineManagementPage> {
                             "${item['name']} (${item['used']} @ ₹${item['price']})",
                             style: TextStyle(
                               fontSize: 13,
-                              color: item['used'] > 0 ? Colors.black87 : Colors.grey,
-                              fontWeight: item['used'] > 0 ? FontWeight.w600 : FontWeight.normal,
+                              color: item['used'] > 0
+                                  ? Colors.black87
+                                  : Colors.grey,
+                              fontWeight: item['used'] > 0
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
                             ),
                           ),
                           Text(
                             "₹${item['total']}",
                             style: TextStyle(
                               fontSize: 13,
-                              color: item['used'] > 0 ? Colors.redAccent : Colors.grey,
-                              fontWeight: item['used'] > 0 ? FontWeight.bold : FontWeight.normal,
+                              color: item['used'] > 0
+                                  ? Colors.redAccent
+                                  : Colors.grey,
+                              fontWeight: item['used'] > 0
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
                             ),
                           ),
                         ],
@@ -663,10 +728,17 @@ class _FineManagementPageState extends State<FineManagementPage> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogCtx),
-                child: const Text("CANCEL", style: TextStyle(color: Colors.grey)),
+                child: const Text(
+                  "CANCEL",
+                  style: TextStyle(color: Colors.grey),
+                ),
               ),
               ElevatedButton(
-                onPressed: () => _executeGuestConversion(bill['_id'], setDialogState),
+                onPressed: () => _executeGuestConversion(
+                  bill['_id'],
+                  setDialogState,
+                  dialogCtx,
+                ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.orange,
                   foregroundColor: Colors.white,
@@ -721,8 +793,10 @@ class _FineManagementPageState extends State<FineManagementPage> {
     }
 
     // Check navigation boundaries: cycles ordered from newest (index 0) to oldest (last index)
-    bool canGoBack = selectedCycleIndex < cycles.length - 1; // Can navigate to older cycles
-    bool canGoForward = selectedCycleIndex > 0; // Can navigate to newer/live cycles
+    bool canGoBack =
+        selectedCycleIndex < cycles.length - 1; // Can navigate to older cycles
+    bool canGoForward =
+        selectedCycleIndex > 0; // Can navigate to newer/live cycles
 
     final String cycleLabel = cycles.isNotEmpty && selectedCycleIndex != -1
         ? (cycles[selectedCycleIndex]['label'] ?? "Select Cycle")
@@ -831,7 +905,7 @@ class _FineManagementPageState extends State<FineManagementPage> {
       return matchesStatus && matchesSearch;
     }).toList();
 
-    // 🌟 CUSTOM SORTING: Priorities are: 
+    // 🌟 CUSTOM SORTING: Priorities are:
     // 0: Pending
     // 1: Processing
     // 2: Reject / Rejected (Matches database 'reject' or frontend 'rejected')
@@ -935,6 +1009,9 @@ class _FineManagementPageState extends State<FineManagementPage> {
               trailing: PopupMenuButton<String>(
                 icon: const Icon(Icons.more_vert, color: Colors.grey),
                 onSelected: (value) {
+                  if (value == 'processing') {
+                    _updateBillStatus(p['_id'], 'processing');
+                  }
                   if (value == 'approve') {
                     _updateBillStatus(p['_id'], 'success');
                   }
@@ -948,7 +1025,25 @@ class _FineManagementPageState extends State<FineManagementPage> {
                   }
                 },
                 itemBuilder: (context) => [
-                  if (status.toLowerCase() != 'success' && status.toLowerCase() != 'approved')
+                  // Move to Processing Option (Shown when status is pending)
+                  if (status.toLowerCase() == 'pending')
+                    const PopupMenuItem(
+                      value: 'processing',
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.hourglass_top,
+                            color: Colors.blue,
+                            size: 20,
+                          ),
+                          SizedBox(width: 8),
+                          Text("Mark as Processing"),
+                        ],
+                      ),
+                    ),
+                  // Approve Payment Option
+                  if (status.toLowerCase() != 'success' &&
+                      status.toLowerCase() != 'approved')
                     const PopupMenuItem(
                       value: 'approve',
                       child: Row(
@@ -963,7 +1058,9 @@ class _FineManagementPageState extends State<FineManagementPage> {
                         ],
                       ),
                     ),
-                  if (status.toLowerCase() != 'rejected' && status.toLowerCase() != 'reject')
+                  // Reject Payment Option
+                  if (status.toLowerCase() != 'rejected' &&
+                      status.toLowerCase() != 'reject')
                     const PopupMenuItem(
                       value: 'reject',
                       child: Row(
@@ -1017,7 +1114,6 @@ class _FineManagementPageState extends State<FineManagementPage> {
                   context,
                   MaterialPageRoute(
                     builder: (context) => PaymentDetailScreen(payment: p),
-
                   ),
                 ).then((_) => _loadBills());
               },
@@ -1029,7 +1125,14 @@ class _FineManagementPageState extends State<FineManagementPage> {
   }
 
   Widget _buildBillFilters() {
-    List<String> statuses = ['All', 'Pending', 'Success', 'Rejected'];
+    // Added 'Processing' to the filter list
+    List<String> statuses = [
+      'All',
+      'Pending',
+      'Processing',
+      'Success',
+      'Rejected',
+    ];
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -1253,7 +1356,10 @@ class _FineManagementPageState extends State<FineManagementPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(name, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+        Text(
+          name,
+          style: TextStyle(color: color, fontWeight: FontWeight.bold),
+        ),
         Row(
           children: [
             Expanded(child: _miniInp("Price", p)),
@@ -1386,13 +1492,18 @@ class _FineManagementPageState extends State<FineManagementPage> {
                   TextField(
                     controller: _amountController,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: "Amount (₹)", prefixText: "₹ "),
+                    decoration: const InputDecoration(
+                      labelText: "Amount (₹)",
+                      prefixText: "₹ ",
+                    ),
                   ),
                   const SizedBox(height: 10),
                   TextField(
                     controller: _descController,
                     maxLines: 2,
-                    decoration: const InputDecoration(labelText: "Description (Optional)"),
+                    decoration: const InputDecoration(
+                      labelText: "Description (Optional)",
+                    ),
                   ),
                 ],
               ),
@@ -1400,14 +1511,18 @@ class _FineManagementPageState extends State<FineManagementPage> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogCtx),
-                child: const Text("CANCEL", style: TextStyle(color: Colors.grey)),
+                child: const Text(
+                  "CANCEL",
+                  style: TextStyle(color: Colors.grey),
+                ),
               ),
               ElevatedButton(
                 onPressed: isCreating
                     ? null
                     : () async {
                         if (_titleController.text.isEmpty ||
-                            _amountController.text.isEmpty) return;
+                            _amountController.text.isEmpty)
+                          return;
                         setDialogState(() => isCreating = true);
 
                         final bool success = await api.createIndividualFine({
