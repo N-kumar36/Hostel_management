@@ -18,9 +18,8 @@ export const proxyRequest = (req, res, next) => {
         }
 
         const currentServer = servers[serverIndex];
-        console.log(`🔄 Routing -> Server ${currentServer.id} (${currentServer.url})`);
+        console.log(`Routing -> Server ${currentServer.id} (${currentServer.url})`);
 
-        // Create a dynamic proxy instance for this server
         const proxy = createProxyMiddleware({
             target: currentServer.url,
             changeOrigin: true, // Crucial for Vercel deployment targets
@@ -33,16 +32,19 @@ export const proxyRequest = (req, res, next) => {
                         proxyReq.setHeader("Authorization", req.headers.authorization);
                     }
                     
-                    // If express.json() already parsed the body, we need to restream it
-                    if (req.body && Object.keys(req.body).length > 0 && !req.headers["content-type"]?.includes("multipart/form-data")) {
+                    // FIXED BODY RESTREAMING:
+                    // Check if express parsed a body (even an empty object `{}`)
+                    if (req.body && typeof req.body === "object" && !req.headers["content-type"]?.includes("multipart/form-data")) {
                         const bodyData = JSON.stringify(req.body);
                         proxyReq.setHeader('Content-Type', 'application/json');
                         proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
+                        
+                        // Always write the body data (e.g. `{}`) so the proxy stream finishes
                         proxyReq.write(bodyData);
                     }
                 },
                 error: (err, req, res) => {
-                    console.log(`⚠️ Server ${currentServer.id} encountered an issue: ${err.message}`);
+                    console.log(`Server ${currentServer.id} encountered an issue: ${err.message}`);
                     serverIndex++;
                     tryNextServer(); // Fallback to the next backup server automatically
                 }

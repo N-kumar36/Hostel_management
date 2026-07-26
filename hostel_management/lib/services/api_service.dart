@@ -8,7 +8,6 @@ import 'package:intl/intl.dart';
 // Assuming this contains your convertMealsToWeekly logic
 
 class ApiService {
-  // final String baseUrl = "https://hostel-management-3e61.onrender.com/api";
   // final String baseUrl = "http://10.192.6.123:5000/api";
 
   // load balancer

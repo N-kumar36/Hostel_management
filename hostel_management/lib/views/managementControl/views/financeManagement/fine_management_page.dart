@@ -915,10 +915,8 @@ class _FineManagementPageState extends State<FineManagementPage> {
           case 'processing':
             return 1;
           case 'reject':
-          case 'rejected':
             return 2;
           case 'success':
-          case 'approved':
             return 3;
           default:
             return 4;
@@ -1013,7 +1011,7 @@ class _FineManagementPageState extends State<FineManagementPage> {
                     _updateBillStatus(p['_id'], 'success');
                   }
                   if (value == 'reject') {
-                    _updateBillStatus(p['_id'], 'rejected');
+                    _updateBillStatus(p['_id'], 'reject');
                   }
                   if (value == 'delete') _showDeleteBillConfirmation(p['_id']);
                   if (value == 'convert_to_sub') _autoConvertToPlan(p);
@@ -1056,8 +1054,7 @@ class _FineManagementPageState extends State<FineManagementPage> {
                       ),
                     ),
                   // Reject Payment Option
-                  if (status.toLowerCase() != 'rejected' &&
-                      status.toLowerCase() != 'reject')
+                  if (status.toLowerCase() != 'reject')
                     const PopupMenuItem(
                       value: 'reject',
                       child: Row(
@@ -1128,7 +1125,7 @@ class _FineManagementPageState extends State<FineManagementPage> {
       'Pending',
       'Processing',
       'Success',
-      'Rejected',
+      'Reject',
     ];
     return Container(
       width: double.infinity,
@@ -1573,7 +1570,6 @@ class _FineManagementPageState extends State<FineManagementPage> {
       case 'approved':
         color = Colors.green;
         break;
-      case 'rejected':
       case 'reject':
         color = Colors.red;
         break;
