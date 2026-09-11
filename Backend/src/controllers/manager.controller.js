@@ -97,7 +97,7 @@ export const getAllStudent = async (req, res) => {
       hostelId: hostelId,
       status: { $in: ["active", "approve"] }
     })
-      .select("name email regNum department year photoURL role status") // Selects only the fields required by your Flutter page
+     .select("name email phone regNum department year photoURL role status") // Selects only the fields required by your Flutter page
       .sort({ name: 1 }); // Alphabetical sort order configuration
 
     return res.status(200).json({
@@ -216,7 +216,7 @@ export const getAllHostelStudent = async (req, res) => {
     const student = await User.find({
       hostelId: req.user.hostelId,
       // status: "active"
-    }).select("_id name email regNum department year photoURL");
+    }).select("_id name email phone regNum department year photoURL");
 
     if (!student || student.length === 0) {
       return res.status(404).json({ message: "Hostel Student not found" });
