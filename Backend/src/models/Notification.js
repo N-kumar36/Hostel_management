@@ -1,117 +1,26 @@
 import mongoose from "mongoose";
 
-const notificationSchema = new mongoose.Schema(
-  {
-    // =====================================================
-    // NOTIFICATION OWNER
-    // =====================================================
-    userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-    },
+const notificationSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  hostelId: { type: mongoose.Schema.Types.ObjectId, ref: 'Hostel', required: true },
+  title: { type: String, required: true },
+  message: { type: String, required: true },
+  type: { 
+    type: String, 
+    enum: ['vote', 'payment', 'served', 'notice', 'alert'], 
+    default: 'notice' 
+  },
+  isRead: { type: Boolean, default: false },
+  
+  // NEW: Track exactly when it was read
+  readAt: { type: Date, default: null },
+  
+  createdAt: { type: Date, default: Date.now }
+});
 
-    // =====================================================
-    // HOSTEL
-    // =====================================================
-    hostelId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Hostel",
-      required: true,
-    },
+// ✨ THE MAGIC: Create a TTL Index on the 'readAt' field
+// 3 days = 3 * 24 * 60 * 60 = 259200 seconds
+// MongoDB will automatically delete the document 3 days after the 'readAt' date.
+notificationSchema.index({ readAt: 1 }, { expireAfterSeconds: 259200 });
 
-    // =====================================================
-    // CONTENT
-    // =====================================================
-    title: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-
-    message: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-
-    // =====================================================
-    // NOTIFICATION TYPE
-    // =====================================================
-    type: {
-      type: String,
-
-      enum: [
-        // Existing types
-        "vote",
-        "payment",
-        "served",
-        "notice",
-        "alert",
-
-        // Meal events
-        "meal_cancelled",
-        "meal_served",
-        "take_your_meal",
-        "meal_balance_warning",
-
-        // Cycle events
-        "new_cycle",
-
-        // Meeting
-        "meeting_arranged",
-
-        // Manager / gate
-        "gate_closed",
-      ],
-
-      default: "notice",
-    },
-
-    // =====================================================
-    // READ STATUS
-    // =====================================================
-    isRead: {
-      type: Boolean,
-      default: false,
-    },
-
-    // Exact time notification was read
-    readAt: {
-      type: Date,
-      default: null,
-    },
-
-    // =====================================================
-    // CREATED TIME
-    // =====================================================
-    createdAt: {
-      type: Date,
-      default: Date.now,
-    },
-  }
-);
-
-
-// =========================================================
-// TTL INDEX
-// =========================================================
-// MongoDB automatically deletes a notification
-// 3 days after it has been marked as read.
-//
-// 3 days = 259200 seconds
-//
-// IMPORTANT:
-// readAt is null for unread notifications,
-// so unread notifications are NOT deleted by this TTL.
-// =========================================================
-notificationSchema.index(
-  { readAt: 1 },
-  { expireAfterSeconds: 259200 }
-);
-
-
-export default mongoose.model(
-  "Notification",
-  notificationSchema
-);
+export default mongoose.model("Notification", notificationSchema);
