@@ -299,6 +299,7 @@ export const getVotesByDateAndSlot = async (req, res) => {
         choice: userVote ? userVote.itemPreference : "", 
         votedAt: userVote ? userVote.votedAt : null,
         isServed: userVote ? userVote.isServed : false,
+        servedAt: userVote ? userVote.servedAt : null,
         isGuest: false,
         hostName: null
       });
@@ -334,6 +335,7 @@ export const getVotesByDateAndSlot = async (req, res) => {
             choice: guestGroup.guestItemPreference || "regular", 
             votedAt: guestGroup.requestedAt,
             isServed: isThisGuestServed,
+            servedAt: isThisGuestServed ? new Date() : null,
             isGuest: true,
             hostName: hostName
           });
