@@ -132,6 +132,8 @@ export const getPendingFines = async (req, res) => {
     // Execute lookup with populated student records
     const pendingFines = await Fine.find(query)
       .populate("studentId", "name email photoURL")
+      .populate("approvedBy", "name")
+      .populate("managerId", "name")
       .sort({ date: -1 })
       .lean();
 
@@ -174,6 +176,18 @@ export const updateFineStatus = async (req, res) => {
       status: status,
       managerId: activeManagerId
     };
+    
+    // Store approval information only when payment is approved
+if (status === 'success') {
+  updatePayload.approvedBy = activeManagerId;
+  updatePayload.approvedAt = new Date();
+}
+
+// Clear approval information if payment is rejected
+if (status === 'reject') {
+  updatePayload.approvedBy = null;
+  updatePayload.approvedAt = null;
+}
 
     if (status === 'success') {
       if (paymentMethod === 'Online' || paymentMethod === 'Offline') {
@@ -190,7 +204,8 @@ export const updateFineStatus = async (req, res) => {
       id,
       { $set: updatePayload },
       { new: true, runValidators: true }
-    ).populate("managerId", "name");
+    ).populate("managerId", "name")
+    .populate("approvedBy", "name");
 
     if (!updatedFine) {
       return res.status(404).json({

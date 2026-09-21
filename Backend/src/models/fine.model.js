@@ -3,6 +3,8 @@ import mongoose from "mongoose";
 const fineSchema = new mongoose.Schema({
   studentId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   managerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User'},
+  approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  approvedAt: { type: Date },
   hostelId: { type: mongoose.Schema.Types.ObjectId, ref: 'Hostel', required: true },
   title: { type: String, required: true },
   amount: { type: Number, required: true },
@@ -38,7 +40,7 @@ const fineSchema = new mongoose.Schema({
     enum: ['pending', 'processing', 'success', 'reject'],
     default: 'pending'
   },
-  paymentScreenshot: { type: String },
+  
   date: { type: Date, default: Date.now }
 });
 
