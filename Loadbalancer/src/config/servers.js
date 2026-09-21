@@ -19,9 +19,9 @@ export const servers = [
     },
 
     // Nitya3666@gmail.com account
-    // {
-    //     id: 3,
-    //     url: "https://hostel-management-rouge-six.vercel.app",
-    //     active: true
-    // }
+    {
+        id: 3,
+        url: "https://hostel-management-rouge-six.vercel.app",
+        active: true
+    }
 ];
