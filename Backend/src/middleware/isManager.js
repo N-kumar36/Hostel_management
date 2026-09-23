@@ -12,6 +12,28 @@ export const checkPermission = (requiredPermission) => {
         return next(); // Admins bypass all checks immediately
       }
 
+      const isCook = req.user?.role === "cook";
+
+      if (isCook) {
+        const cookPermissions = [
+          "viewStudents",
+          "mealEdit",
+          "guestMeal",
+          "serveMeal",
+          "voteStatus",
+        ];
+
+        if(
+          requiredPermission && !cookPermissions.includes(requiredPermission)
+        ){
+          return res.status(403).json({
+            success: false,
+            message: "permission denied: Cook does not have this access."
+          });
+        }
+        return next();
+      }
+
       // 2. Not an admin? Check for an active manager assignment
       const manager = await ManagerAssignment.findOne({
         userId: req.user.id || req.user._id, // Safely handles both id formats
