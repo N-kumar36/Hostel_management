@@ -11,10 +11,50 @@ class DailyMenuCard extends StatefulWidget {
 
 class DailyMenuCardState extends State<DailyMenuCard> {
   final api = ApiService();
+
   Map<String, dynamic>? todayMeal;
   Map<String, dynamic>? voteStatus;
+
   bool isLoading = true;
   bool isActionLoading = false;
+
+  // ===========================================================================
+  // THEME HELPERS
+  // ===========================================================================
+
+  Color get _surface => Theme.of(context).colorScheme.surface;
+
+  Color get _textPrimary => Theme.of(context).colorScheme.onSurface;
+
+  Color get _textSecondary => Theme.of(context).colorScheme.onSurfaceVariant;
+
+  Color get _dividerColor {
+    final brightness = Theme.of(context).brightness;
+
+    return brightness == Brightness.dark
+        ? const Color(0xFF2A2E39)
+        : const Color(0xFFE5E7EB);
+  }
+
+  Color get _shadowColor {
+    final brightness = Theme.of(context).brightness;
+
+    return brightness == Brightness.dark
+        ? Colors.black.withOpacity(0.22)
+        : Colors.black.withOpacity(0.05);
+  }
+
+  Color get _disabledButtonColor {
+    final brightness = Theme.of(context).brightness;
+
+    return brightness == Brightness.dark
+        ? const Color(0xFF4B505C)
+        : Colors.grey;
+  }
+
+  // ===========================================================================
+  // INIT
+  // ===========================================================================
 
   @override
   void initState() {
@@ -28,34 +68,54 @@ class DailyMenuCardState extends State<DailyMenuCard> {
     fetchTodayData();
   }
 
+  // ===========================================================================
+  // FETCH TODAY'S DATA
+  // ===========================================================================
+
   Future<void> fetchTodayData() async {
-    if (todayMeal == null) setState(() => isLoading = true);
+    if (todayMeal == null && mounted) {
+      setState(() => isLoading = true);
+    }
 
     try {
       final Map<String, dynamic> weeklyData = await api.fetchWeeklyMeals();
-      String todayKey = DateFormat('dd/MM/yyyy').format(DateTime.now());
+
+      final String todayKey = DateFormat('dd/MM/yyyy').format(DateTime.now());
 
       if (weeklyData.containsKey(todayKey)) {
         todayMeal = weeklyData[todayKey];
 
         final statusRes = await api.checkVoteStatus(todayMeal!['_id']);
-        if (statusRes['success'] == true) {
+
+        if (statusRes['success'] == true && mounted) {
           setState(() {
             voteStatus = statusRes['status'];
           });
         }
+      } else {
+        todayMeal = null;
       }
     } catch (e) {
       debugPrint("Error fetching today's menu: $e");
     } finally {
-      if (mounted) setState(() => isLoading = false);
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
     }
   }
+
+  // ===========================================================================
+  // PARSE LOCK TIME
+  // ===========================================================================
 
   DateTime _parseLockTime(String dateStr, String lockTimeIso) {
     try {
       final mealDate = DateFormat('dd/MM/yyyy').parse(dateStr);
+
       final lockDT = DateTime.parse(lockTimeIso);
+
       return DateTime(
         mealDate.year,
         mealDate.month,
@@ -68,32 +128,42 @@ class DailyMenuCardState extends State<DailyMenuCard> {
     }
   }
 
+  // ===========================================================================
+  // VOTE ACTION
+  // ===========================================================================
+
   Future<void> _handleVoteAction(
     String slot,
     bool currentlyVoted,
     bool isLocked,
     bool isCancelled,
   ) async {
-    if (isLocked || isCancelled || isActionLoading) return;
+    if (isLocked || isCancelled || isActionLoading) {
+      return;
+    }
 
-    setState(() => isActionLoading = true);
+    if (mounted) {
+      setState(() {
+        isActionLoading = true;
+      });
+    }
+
     try {
       Map<String, dynamic> res;
+
       if (currentlyVoted) {
         res = await api.cancelVote(todayMeal!['_id'], slot);
       } else {
-        // ✨ FIX: Pass 'regular' or the base menu value properly as expected by backend
-        final String baseMenu = (todayMeal![slot]['manu'] ?? 'regular').toString();
-        
         res = await api.postVote({
           "mealId": todayMeal!['_id'].toString(),
           "timeSlot": slot,
-          "mealType": "regular", // Quick vote defaults to regular preference
+          "mealType": "regular",
         });
       }
 
       if (res['success'] == true) {
         _showSnackBar(res['message'] ?? "Action Successful", Colors.green);
+
         await fetchTodayData();
       } else {
         _showSnackBar(res['message'] ?? "Action failed", Colors.red);
@@ -101,37 +171,111 @@ class DailyMenuCardState extends State<DailyMenuCard> {
     } catch (e) {
       _showSnackBar("Connection error: $e", Colors.red);
     } finally {
-      if (mounted) setState(() => isActionLoading = false);
+      if (mounted) {
+        setState(() {
+          isActionLoading = false;
+        });
+      }
     }
   }
 
+  // ===========================================================================
+  // SNACKBAR
+  // ===========================================================================
+
   void _showSnackBar(String msg, Color color) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(msg),
+        content: Text(
+          msg,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
         backgroundColor: color,
         behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
       ),
     );
   }
 
+  // ===========================================================================
+  // BUILD
+  // ===========================================================================
+
   @override
   Widget build(BuildContext context) {
-    if (isLoading) return const Center(child: CircularProgressIndicator());
+    if (isLoading) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(20),
+          child: CircularProgressIndicator(strokeWidth: 2.5),
+        ),
+      );
+    }
+
     if (todayMeal == null) {
-      return const Center(child: Text("No menu set for today."));
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(22),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: _dividerColor),
+        ),
+        child: Column(
+          children: [
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(
+                Icons.restaurant_menu_rounded,
+                color: Theme.of(context).colorScheme.primary,
+                size: 23,
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            Text(
+              "No menu set for today.",
+              style: TextStyle(
+                color: _textPrimary,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      );
     }
 
     final morningStates = _getMealStates(todayMeal!['morning'], "morning");
+
     final nightStates = _getMealStates(todayMeal!['night'], "night");
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _surface,
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _dividerColor),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10),
+          BoxShadow(
+            color: _shadowColor,
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
         ],
       ),
       child: Column(
@@ -142,7 +286,9 @@ class DailyMenuCardState extends State<DailyMenuCard> {
             morningStates,
             Colors.orange,
           ),
-          const Divider(height: 24),
+
+          Divider(height: 24, thickness: 1, color: _dividerColor),
+
           _menuRow(
             "Night",
             todayMeal!['night']['manu'] ?? 'Veg',
@@ -153,6 +299,10 @@ class DailyMenuCardState extends State<DailyMenuCard> {
       ),
     );
   }
+
+  // ===========================================================================
+  // MEAL STATES
+  // ===========================================================================
 
   ({
     bool isLocked,
@@ -168,14 +318,17 @@ class DailyMenuCardState extends State<DailyMenuCard> {
     );
 
     final bool voted = voteStatus?[slot] == true;
+
     final bool isServed = voteStatus?['${slot}Served'] == true;
 
-    final isLocked =
+    final bool isLocked =
         (meal['isLocked'] == true) ||
         DateTime.now().isAfter(lockTime) ||
         isServed;
-    final isCancelled = meal['isCancelled'] == true;
-    final formattedTime = DateFormat('hh:mm a').format(lockTime);
+
+    final bool isCancelled = meal['isCancelled'] == true;
+
+    final String formattedTime = DateFormat('hh:mm a').format(lockTime);
 
     return (
       isLocked: isLocked,
@@ -186,21 +339,40 @@ class DailyMenuCardState extends State<DailyMenuCard> {
     );
   }
 
-  Widget _menuRow(String label, String dish, var s, Color color) {
+  // ===========================================================================
+  // MENU ROW
+  // ===========================================================================
+
+  Widget _menuRow(String label, String dish, dynamic s, Color color) {
     Color btnColor = s.voted ? Colors.green : Colors.deepPurple;
-    if (s.isCancelled) btnColor = Colors.red.shade300;
-    if (s.isServed) btnColor = Colors.teal;
-    if (s.isLocked && !s.voted && !s.isServed) btnColor = Colors.grey;
+
+    if (s.isCancelled) {
+      btnColor = Colors.red.shade300;
+    }
+
+    if (s.isServed) {
+      btnColor = Colors.teal;
+    }
+
+    if (s.isLocked && !s.voted && !s.isServed) {
+      btnColor = _disabledButtonColor;
+    }
 
     String buttonText = s.voted ? "CANCEL" : "VOTE";
-    if (s.isServed) buttonText = "SERVED";
+
+    if (s.isServed) {
+      buttonText = "SERVED";
+    }
 
     return Row(
       children: [
+        // ============================================================
+        // MEAL ICON
+        // ============================================================
         Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
+            color: color.withOpacity(0.10),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Icon(
@@ -209,59 +381,89 @@ class DailyMenuCardState extends State<DailyMenuCard> {
             size: 20,
           ),
         ),
+
         const SizedBox(width: 16),
+
+        // ============================================================
+        // MEAL INFORMATION
+        // ============================================================
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  Text(
-                    s.isCancelled ? "CANCELLED" : dish.toUpperCase(),
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
-                      color: s.isCancelled ? Colors.red : Colors.black,
+                  Flexible(
+                    child: Text(
+                      s.isCancelled ? "CANCELLED" : dish.toUpperCase(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                        color: s.isCancelled ? Colors.red : _textPrimary,
+                      ),
                     ),
                   ),
+
                   if (s.isServed) ...[
                     const SizedBox(width: 8),
+
                     _statusBadge("SERVED", Colors.green),
                   ],
                 ],
               ),
+
+              const SizedBox(height: 3),
+
               Text(
                 s.isServed
                     ? "Meal consumed"
                     : (s.isLocked
-                        ? "Voting Closed"
-                        : "Ends at ${s.formattedTime}"),
+                          ? "Voting Closed"
+                          : "Ends at ${s.formattedTime}"),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 11,
                   color: (s.isLocked || s.isServed)
-                      ? Colors.blueGrey
-                      : Colors.grey,
+                      ? _textSecondary
+                      : _textSecondary.withOpacity(0.82),
                 ),
               ),
             ],
           ),
         ),
+
+        const SizedBox(width: 10),
+
+        // ============================================================
+        // VOTE BUTTON
+        // ============================================================
         ElevatedButton(
           onPressed:
               (s.isLocked || s.isCancelled || s.isServed || isActionLoading)
-                  ? null
-                  : () => _handleVoteAction(
-                        label.toLowerCase(),
-                        s.voted,
-                        s.isLocked,
-                        s.isCancelled,
-                      ),
+              ? null
+              : () => _handleVoteAction(
+                  label.toLowerCase(),
+                  s.voted,
+                  s.isLocked,
+                  s.isCancelled,
+                ),
           style: ElevatedButton.styleFrom(
             backgroundColor: btnColor,
             foregroundColor: Colors.white,
-            disabledBackgroundColor: btnColor.withOpacity(0.6),
+
+            disabledBackgroundColor: btnColor.withOpacity(0.60),
+
+            disabledForegroundColor: Colors.white.withOpacity(0.85),
+
             elevation: 0,
+
             minimumSize: const Size(80, 35),
+
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
             ),
@@ -287,11 +489,15 @@ class DailyMenuCardState extends State<DailyMenuCard> {
     );
   }
 
+  // ===========================================================================
+  // STATUS BADGE
+  // ===========================================================================
+
   Widget _statusBadge(String label, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withOpacity(0.10),
         border: Border.all(color: color, width: 0.5),
         borderRadius: BorderRadius.circular(4),
       ),

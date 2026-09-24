@@ -887,48 +887,168 @@ class _FineManagementPageState extends State<FineManagementPage> {
     );
   }
 
-  Widget _buildPaymentList() {
-    List<dynamic> filteredBills = monthlyBills.where((b) {
-      final student = b['studentId'];
-      final String name = (student?['name'] ?? "").toString().toLowerCase();
-      final String email = (student?['email'] ?? "").toString().toLowerCase();
-      final String status = (b['status'] ?? 'pending').toString().toLowerCase();
-      final String query = billSearchQuery.toLowerCase().trim();
+  String _formatApprovalDate(dynamic value) {
+    if (value == null) return "Not available";
 
-      bool matchesStatus =
+    final raw = value.toString().trim();
+    if (raw.isEmpty) return "Not available";
+
+    final date = DateTime.tryParse(raw);
+    if (date == null) return "Not available";
+
+    return DateFormat('dd MMM yyyy • hh:mm a').format(date.toLocal());
+  }
+
+  String _getBillId(dynamic bill) {
+    return bill['_id']?.toString() ?? '';
+  }
+
+  String _getStudentId(dynamic bill) {
+    final student = bill['studentId'];
+    if (student is Map) return student['_id']?.toString() ?? '';
+    return student?.toString() ?? '';
+  }
+
+  String _getStudentName(dynamic bill) {
+    final student = bill['studentId'];
+    if (student is Map) return student['name']?.toString() ?? 'Unknown Student';
+    return 'Unknown Student';
+  }
+
+  String _getStudentEmail(dynamic bill) {
+    final student = bill['studentId'];
+    if (student is Map) return student['email']?.toString() ?? '';
+    return '';
+  }
+
+  String _getStudentPhoto(dynamic bill) {
+    final student = bill['studentId'];
+    if (student is Map) return student['photoURL']?.toString() ?? '';
+    return '';
+  }
+
+  String _getApproverName(dynamic bill) {
+    if (bill is! Map) {
+      return 'Not available';
+    }
+
+    // New backend response:
+    // managerId: {
+    //   _id: "...",
+    //   name: "Manager Name",
+    //   email: "manager@email.com"
+    // }
+    final manager = bill['managerId'];
+
+    if (manager is Map) {
+      final name = manager['name']?.toString().trim();
+
+      if (name != null && name.isNotEmpty) {
+        return name;
+      }
+
+      final email = manager['email']?.toString().trim();
+
+      if (email != null && email.isNotEmpty) {
+        return email;
+      }
+    }
+
+    // Also support approvedBy if you add it later.
+    final approvedBy = bill['approvedBy'];
+
+    if (approvedBy is Map) {
+      final name = approvedBy['name']?.toString().trim();
+
+      if (name != null && name.isNotEmpty) {
+        return name;
+      }
+
+      final email = approvedBy['email']?.toString().trim();
+
+      if (email != null && email.isNotEmpty) {
+        return email;
+      }
+    }
+
+    return 'Not available';
+  }
+
+  String _getApprovedAt(dynamic bill) {
+    final approvedAt =
+        bill['approvedAt'] ?? bill['paymentApprovedAt'] ?? bill['verifiedAt'];
+
+    return _formatApprovalDate(approvedAt);
+  }
+
+  bool _isApproved(dynamic bill) {
+    final status = (bill['status'] ?? 'pending').toString().toLowerCase();
+    return status == 'success' || status == 'approved';
+  }
+
+  Widget _buildPaymentList() {
+    final query = billSearchQuery.toLowerCase().trim();
+
+    final filteredBills = monthlyBills.where((bill) {
+      final student = bill['studentId'];
+      final name = student is Map
+          ? (student['name'] ?? '').toString().toLowerCase()
+          : '';
+      final email = student is Map
+          ? (student['email'] ?? '').toString().toLowerCase()
+          : '';
+      final status = (bill['status'] ?? 'pending').toString().toLowerCase();
+
+      final matchesStatus =
           selectedBillFilter == 'All' ||
           status == selectedBillFilter.toLowerCase();
-      bool matchesSearch = name.contains(query) || email.contains(query);
+      final matchesSearch = name.contains(query) || email.contains(query);
+
       return matchesStatus && matchesSearch;
     }).toList();
 
-    // 🌟 CUSTOM SORTING: Priorities are:
-    // 0: Pending
-    // 1: Processing
-    // 2: Reject / Rejected (Matches database 'reject' or frontend 'rejected')
-    // 3: Success / Approved
-    filteredBills.sort((a, b) {
-      int getStatusPriority(String status) {
-        switch (status.toLowerCase()) {
-          case 'pending':
-            return 0;
-          case 'processing':
-            return 1;
-          case 'reject':
-            return 2;
-          case 'success':
-            return 3;
-          default:
-            return 4;
+    final Map<String, List<dynamic>> groupedBills = {};
+
+    for (final bill in filteredBills) {
+      final studentId = _getStudentId(bill);
+      final key = studentId.isNotEmpty
+          ? studentId
+          : '${_getStudentName(bill)}_${_getStudentEmail(bill)}';
+      groupedBills.putIfAbsent(key, () => []).add(bill);
+    }
+
+    int getStatusPriority(String status) {
+      switch (status.toLowerCase()) {
+        case 'pending':
+          return 0;
+        case 'processing':
+          return 1;
+        case 'reject':
+        case 'rejected':
+          return 2;
+        case 'success':
+        case 'approved':
+          return 3;
+        default:
+          return 4;
+      }
+    }
+
+    final groupedEntries = groupedBills.entries.toList();
+    groupedEntries.sort((a, b) {
+      int priority(List<dynamic> bills) {
+        var result = 4;
+        for (final bill in bills) {
+          final p = getStatusPriority((bill['status'] ?? 'pending').toString());
+          if (p < result) result = p;
         }
+        return result;
       }
 
-      final statusA = (a['status'] ?? 'pending').toString();
-      final statusB = (b['status'] ?? 'pending').toString();
-      return getStatusPriority(statusA).compareTo(getStatusPriority(statusB));
+      return priority(a.value).compareTo(priority(b.value));
     });
 
-    if (filteredBills.isEmpty) {
+    if (groupedEntries.isEmpty) {
       return RefreshIndicator(
         onRefresh: _loadBills,
         color: Colors.redAccent,
@@ -960,67 +1080,238 @@ class _FineManagementPageState extends State<FineManagementPage> {
       child: ListView.builder(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.only(top: 8, bottom: 20),
-        itemCount: filteredBills.length,
+        itemCount: groupedEntries.length,
         itemBuilder: (context, index) {
-          final p = filteredBills[index];
-          final student = p['studentId'];
-          final String? photoUrl = student != null ? student['photoURL'] : null;
-          final String status = p['status'] ?? 'pending';
+          return _buildStudentFineGroup(groupedEntries[index].value);
+        },
+      ),
+    );
+  }
 
-          return Card(
-            margin: const EdgeInsets.only(bottom: 12, left: 16, right: 16),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(15),
+  Widget _buildStudentSummaryBadge({
+    required IconData icon,
+    required String text,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: color.withOpacity(0.20)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: TextStyle(
+              color: color,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
             ),
-            child: ListTile(
-              leading: CircleAvatar(
-                backgroundImage: (photoUrl != null && photoUrl.isNotEmpty)
-                    ? NetworkImage(photoUrl)
-                    : null,
-                child: (photoUrl == null || photoUrl.isEmpty)
-                    ? const Icon(Icons.person)
-                    : null,
-              ),
-              title: Text(
-                student?['name'] ?? "Unknown Student",
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              subtitle: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStudentFineGroup(List<dynamic> bills) {
+    if (bills.isEmpty) return const SizedBox.shrink();
+
+    final firstBill = bills.first;
+    final studentName = _getStudentName(firstBill);
+    final studentEmail = _getStudentEmail(firstBill);
+    final photoUrl = _getStudentPhoto(firstBill);
+
+    final totalAmount = bills.fold<int>(0, (sum, bill) {
+      final amount = bill['amount'];
+      if (amount is num) return sum + amount.toInt();
+      return sum + (int.tryParse(amount?.toString() ?? '0') ?? 0);
+    });
+
+    final approvedCount = bills.where(_isApproved).length;
+    final pendingCount = bills.where((bill) {
+      return (bill['status'] ?? 'pending').toString().toLowerCase() ==
+          'pending';
+    }).length;
+    final processingCount = bills.where((bill) {
+      return (bill['status'] ?? 'pending').toString().toLowerCase() ==
+          'processing';
+    }).length;
+    final rejectedCount = bills.where((bill) {
+      final status = (bill['status'] ?? 'pending').toString().toLowerCase();
+      return status == 'reject' || status == 'rejected';
+    }).length;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12, left: 16, right: 16),
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+          childrenPadding: const EdgeInsets.only(
+            left: 12,
+            right: 12,
+            bottom: 12,
+          ),
+          leading: CircleAvatar(
+            radius: 27,
+            backgroundColor: Colors.grey.shade200,
+            backgroundImage: photoUrl.isNotEmpty
+                ? NetworkImage(photoUrl)
+                : null,
+            child: photoUrl.isEmpty
+                ? const Icon(Icons.person, color: Colors.grey, size: 28)
+                : null,
+          ),
+          title: Text(
+            studentName,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (studentEmail.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    studentEmail,
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              const SizedBox(height: 7),
+              Wrap(
+                spacing: 6,
+                runSpacing: 5,
                 children: [
-                  Text("₹${p['amount']} - ${p['title']}"),
-                  if (student?['email'] != null)
-                    Text(
-                      "${student['email']}",
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey.shade600,
-                      ),
+                  _buildStudentSummaryBadge(
+                    icon: Icons.receipt_long_rounded,
+                    text: '${bills.length} Fines',
+                    color: Colors.deepPurple,
+                  ),
+                  _buildStudentSummaryBadge(
+                    icon: Icons.currency_rupee_rounded,
+                    text: '₹$totalAmount',
+                    color: Colors.redAccent,
+                  ),
+                  if (approvedCount > 0)
+                    _buildStudentSummaryBadge(
+                      icon: Icons.check_circle_rounded,
+                      text: '$approvedCount Paid',
+                      color: Colors.green,
                     ),
-                  const SizedBox(height: 4),
-                  _buildStatusBadge(status),
+                  if (pendingCount > 0)
+                    _buildStudentSummaryBadge(
+                      icon: Icons.pending_rounded,
+                      text: '$pendingCount Pending',
+                      color: Colors.orange,
+                    ),
+                  if (processingCount > 0)
+                    _buildStudentSummaryBadge(
+                      icon: Icons.hourglass_top_rounded,
+                      text: '$processingCount Processing',
+                      color: Colors.blue,
+                    ),
+                  if (rejectedCount > 0)
+                    _buildStudentSummaryBadge(
+                      icon: Icons.cancel_rounded,
+                      text: '$rejectedCount Rejected',
+                      color: Colors.red,
+                    ),
                 ],
               ),
-              trailing: PopupMenuButton<String>(
-                icon: const Icon(Icons.more_vert, color: Colors.grey),
+            ],
+          ),
+          children: bills.map(_buildIndividualFineInsideStudent).toList(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildIndividualFineInsideStudent(dynamic bill) {
+    final status = (bill['status'] ?? 'pending').toString();
+    final approved = _isApproved(bill);
+    final title = bill['title']?.toString() ?? 'Fine';
+    final description = bill['description']?.toString() ?? '';
+    final amount = bill['amount'];
+    final fineId = _getBillId(bill);
+    final approverName = _getApproverName(bill);
+    final approvedAt = _getApprovedAt(bill);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 9),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    if (description.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        description,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '₹${amount ?? 0}',
+                style: const TextStyle(
+                  color: Colors.redAccent,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 9),
+          Row(
+            children: [
+              _buildStatusBadge(status),
+              const Spacer(),
+              PopupMenuButton<String>(
+                padding: EdgeInsets.zero,
+                icon: const Icon(Icons.more_vert, color: Colors.grey, size: 21),
                 onSelected: (value) {
-                  if (value == 'processing') {
-                    _updateBillStatus(p['_id'], 'processing');
-                  }
-                  if (value == 'approve') {
-                    _updateBillStatus(p['_id'], 'success');
-                  }
-                  if (value == 'reject') {
-                    _updateBillStatus(p['_id'], 'reject');
-                  }
-                  if (value == 'delete') _showDeleteBillConfirmation(p['_id']);
-                  if (value == 'convert_to_sub') _autoConvertToPlan(p);
-                  if (value == 'convert_to_guest') {
-                    _showConvertPackToGuestDialog(p);
-                  }
+                  if (value == 'processing')
+                    _updateBillStatus(fineId, 'processing');
+                  if (value == 'approve') _updateBillStatus(fineId, 'success');
+                  if (value == 'reject') _updateBillStatus(fineId, 'reject');
+                  if (value == 'delete') _showDeleteBillConfirmation(fineId);
+                  if (value == 'convert_to_sub') _autoConvertToPlan(bill);
+                  if (value == 'convert_to_guest')
+                    _showConvertPackToGuestDialog(bill);
                 },
                 itemBuilder: (context) => [
-                  // Move to Processing Option (Shown when status is pending)
                   if (status.toLowerCase() == 'pending')
                     const PopupMenuItem(
                       value: 'processing',
@@ -1032,13 +1323,11 @@ class _FineManagementPageState extends State<FineManagementPage> {
                             size: 20,
                           ),
                           SizedBox(width: 8),
-                          Text("Mark as Processing"),
+                          Text('Mark as Processing'),
                         ],
                       ),
                     ),
-                  // Approve Payment Option
-                  if (status.toLowerCase() != 'success' &&
-                      status.toLowerCase() != 'approved')
+                  if (!approved)
                     const PopupMenuItem(
                       value: 'approve',
                       child: Row(
@@ -1049,19 +1338,19 @@ class _FineManagementPageState extends State<FineManagementPage> {
                             size: 20,
                           ),
                           SizedBox(width: 8),
-                          Text("Approve Payment"),
+                          Text('Approve Payment'),
                         ],
                       ),
                     ),
-                  // Reject Payment Option
-                  if (status.toLowerCase() != 'reject')
+                  if (status.toLowerCase() != 'reject' &&
+                      status.toLowerCase() != 'rejected')
                     const PopupMenuItem(
                       value: 'reject',
                       child: Row(
                         children: [
                           Icon(Icons.cancel, color: Colors.orange, size: 20),
                           SizedBox(width: 8),
-                          Text("Reject Payment"),
+                          Text('Reject Payment'),
                         ],
                       ),
                     ),
@@ -1071,11 +1360,11 @@ class _FineManagementPageState extends State<FineManagementPage> {
                       children: [
                         Icon(Icons.delete, color: Colors.red, size: 20),
                         SizedBox(width: 8),
-                        Text("Delete Bill"),
+                        Text('Delete Bill'),
                       ],
                     ),
                   ),
-                  if (p['isMealPackage'] != true)
+                  if (bill['isMealPackage'] != true)
                     const PopupMenuItem(
                       value: 'convert_to_sub',
                       child: Row(
@@ -1086,34 +1375,126 @@ class _FineManagementPageState extends State<FineManagementPage> {
                             size: 20,
                           ),
                           SizedBox(width: 8),
-                          Text("Convert to Meal Plan"),
+                          Text('Convert to Meal Plan'),
                         ],
                       ),
                     ),
-                  if (p['isMealPackage'] == true)
+                  if (bill['isMealPackage'] == true)
                     const PopupMenuItem(
                       value: 'convert_to_guest',
                       child: Row(
                         children: [
                           Icon(Icons.fastfood, color: Colors.orange, size: 20),
                           SizedBox(width: 8),
-                          Text("Convert to Guest Meals"),
+                          Text('Convert to Guest Meals'),
                         ],
                       ),
                     ),
                 ],
               ),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => PaymentDetailScreen(payment: p),
+            ],
+          ),
+          if (approved) ...[
+            const SizedBox(height: 9),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.green.withOpacity(0.07),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.green.withOpacity(0.18)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.verified_rounded,
+                    color: Colors.green,
+                    size: 19,
                   ),
-                ).then((_) => _loadBills());
-              },
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'PAYMENT APPROVED',
+                          style: TextStyle(
+                            color: Colors.green,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          'Approved by: $approverName',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Approved on: $approvedAt',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
-          );
-        },
+          ],
+          const SizedBox(height: 8),
+          InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => PaymentDetailScreen(payment: bill),
+                ),
+              ).then((_) => _loadBills());
+            },
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.shade200),
+              ),
+              child: const Row(
+                children: [
+                  Icon(
+                    Icons.open_in_new_rounded,
+                    size: 15,
+                    color: Colors.redAccent,
+                  ),
+                  SizedBox(width: 6),
+                  Text(
+                    'View Payment Details',
+                    style: TextStyle(
+                      color: Colors.redAccent,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  Spacer(),
+                  Icon(
+                    Icons.arrow_forward_ios_rounded,
+                    size: 11,
+                    color: Colors.grey,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -16,6 +16,7 @@ class _ManagerAssignState extends State<ManagerAssign>
   List<dynamic> rawHostelUsers = [];
   List<dynamic> segmentStudents = [];
   List<dynamic> segmentManagers = [];
+  List<dynamic> segmentCooks = [];
   List<dynamic> segmentAdmins = [];
 
   bool isLoading = true;
@@ -25,7 +26,7 @@ class _ManagerAssignState extends State<ManagerAssign>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _loadHostelUsersData();
   }
 
@@ -55,6 +56,7 @@ class _ManagerAssignState extends State<ManagerAssign>
             rawHostelUsers = [];
             segmentStudents = [];
             segmentManagers = [];
+            segmentCooks = [];
             segmentAdmins = [];
           }
           isLoading = false;
@@ -88,6 +90,11 @@ class _ManagerAssignState extends State<ManagerAssign>
     segmentManagers = matchedUsers.where((u) {
       final role = (u['role'] ?? '').toString().toLowerCase();
       return role == 'manager';
+    }).toList();
+
+    segmentCooks = matchedUsers.where((u) {
+      final role = (u['role'] ?? '').toString().toLowerCase();
+      return role == 'cook';
     }).toList();
 
     segmentAdmins = matchedUsers.where((u) {
@@ -202,6 +209,7 @@ class _ManagerAssignState extends State<ManagerAssign>
                 tabs: [
                   Tab(text: "Students (${segmentStudents.length})"),
                   Tab(text: "Managers (${segmentManagers.length})"),
+                  Tab(text: "Cooks (${segmentCooks.length})"),
                   Tab(text: "Admins (${segmentAdmins.length})"),
                 ],
               ),
@@ -225,6 +233,10 @@ class _ManagerAssignState extends State<ManagerAssign>
                   _buildDynamicSectionListView(
                     segmentManagers,
                     currentSectionType: 'manager',
+                  ),
+                  _buildDynamicSectionListView(
+                    segmentCooks,
+                    currentSectionType: 'cook',
                   ),
                   _buildDynamicSectionListView(
                     segmentAdmins,
@@ -343,6 +355,11 @@ class _ManagerAssignState extends State<ManagerAssign>
                   const PopupMenuItem(
                     value: 'manager',
                     child: Text("Promote to Manager"),
+                  ),
+                if (currentSectionType != 'cook')
+                  const PopupMenuItem(
+                    value: 'cook',
+                    child: Text("Assign as Cook"),
                   ),
                 if (currentSectionType != 'admin')
                   const PopupMenuItem(
