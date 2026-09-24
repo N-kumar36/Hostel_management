@@ -16,12 +16,12 @@ export const getAppVersion = async (req, res) => {
 
       apkUrls: {
         "armeabi-v7a":
-          "https://www.upload-apk.com/en/user/filemanager/PuhHiZjJ20qj2bH/download",
+          "https://github.com/N-kumar36/Hostel_management/releases/download/v2.0.0/app-armeabi-v7a-release.apk",
         "arm64-v8a":
-          "https://www.upload-apk.com/en/user/filemanager/J4ZAT7VltwbW4bs/download",
+          "https://github.com/N-kumar36/Hostel_management/releases/download/v2.0.0/app-arm64-v8a-release.apk",
 
         "x86_64":
-          "https://www.upload-apk.com/en/user/filemanager/ujad91x4lsO2myT/download",
+          "https://github.com/N-kumar36/Hostel_management/releases/download/v2.0.0/app-x86_64-release.apk",
       },
     });
   } catch (error) {
