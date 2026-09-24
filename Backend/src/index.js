@@ -18,6 +18,7 @@ import upiRoute from "./routes/upi.route.js"
 import MealPlanRouter from "./routes/mealPlan.route.js"; 
 import shoppingRouter from "./routes/shopping.router.js";
 import notificationRoutes from "./routes/notification.routes.js";
+import appVersionRoutes from "./routes/appVersion.routes.js";
 
 
 // app.get("/api/test", (req, res) => {
@@ -50,7 +51,7 @@ app.use("/api/upi", upiRoute);
 app.use("/api/meal-plan", MealPlanRouter);
 app.use("/api/shopping-list", shoppingRouter);
 app.use("/api/notifications", notificationRoutes);
-
+app.use("/api/app-version", appVersionRoutes);
 
 
 // 404 Handler
