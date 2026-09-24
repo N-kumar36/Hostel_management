@@ -4,6 +4,7 @@ import 'package:flutter/rendering.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 // Assuming this contains your convertMealsToWeekly logic
 
@@ -22,11 +23,24 @@ class ApiService {
 
   // Helper to get headers with Bearer token
   Future<Map<String, String>> _getHeaders() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    String? token = prefs.getString('token');
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+
+    final String? token = prefs.getString('token');
+
+    final PackageInfo packageInfo = await PackageInfo.fromPlatform();
+
+    final String appVersion = packageInfo.version;
+    final String appBuild = packageInfo.buildNumber;
+
     return {
       "Content-Type": "application/json",
       "Authorization": "Bearer $token",
+
+      // Application version information.
+      // The backend uses these headers to block unsupported
+      // application builds.
+      "X-App-Version": appVersion,
+      "X-App-Build": appBuild,
     };
   }
 

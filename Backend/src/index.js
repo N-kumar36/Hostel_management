@@ -19,7 +19,7 @@ import MealPlanRouter from "./routes/mealPlan.route.js";
 import shoppingRouter from "./routes/shopping.router.js";
 import notificationRoutes from "./routes/notification.routes.js";
 import appVersionRoutes from "./routes/appVersion.routes.js";
-
+import { requireSupportedAppVersion } from "./middleware/appVersion.middleware.js";
 
 // app.get("/api/test", (req, res) => {
 //   res.json({message: "hi  Hello word"})
@@ -37,6 +37,8 @@ app.use(express.json());
 
 
 // API Routes
+app.use("/api/app-version", appVersionRoutes);
+app.use("/api", requireSupportedAppVersion);
 app.use("/api/user", userRouter);
 app.use("/api/auth", authRoutes);
 app.use("/api/finance", financeRoutes);
@@ -51,7 +53,7 @@ app.use("/api/upi", upiRoute);
 app.use("/api/meal-plan", MealPlanRouter);
 app.use("/api/shopping-list", shoppingRouter);
 app.use("/api/notifications", notificationRoutes);
-app.use("/api/app-version", appVersionRoutes);
+
 
 
 // 404 Handler
