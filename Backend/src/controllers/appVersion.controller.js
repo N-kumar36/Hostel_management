@@ -16,13 +16,12 @@ export const getAppVersion = async (req, res) => {
 
       apkUrls: {
         "armeabi-v7a":
-          "https://YOUR-APK-HOST/hostelmess-2.0.0-armeabi-v7a.apk",
-
+          "https://www.upload-apk.com/PuhHiZjJ20qj2bH",
         "arm64-v8a":
-          "https://YOUR-APK-HOST/hostelmess-2.0.0-arm64-v8a.apk",
+          "https://www.upload-apk.com/J4ZAT7VltwbW4bs",
 
         "x86_64":
-          "https://YOUR-APK-HOST/hostelmess-2.0.0-x86_64.apk",
+          "https://www.upload-apk.com/ujad91x4lsO2myT",
       },
     });
   } catch (error) {
