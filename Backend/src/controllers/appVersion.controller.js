@@ -16,12 +16,12 @@ export const getAppVersion = async (req, res) => {
 
       apkUrls: {
         "armeabi-v7a":
-          "https://www.upload-apk.com/PuhHiZjJ20qj2bH",
+          "https://www.upload-apk.com/en/user/filemanager/PuhHiZjJ20qj2bH/download",
         "arm64-v8a":
-          "https://www.upload-apk.com/J4ZAT7VltwbW4bs",
+          "https://www.upload-apk.com/en/user/filemanager/J4ZAT7VltwbW4bs/download",
 
         "x86_64":
-          "https://www.upload-apk.com/ujad91x4lsO2myT",
+          "https://www.upload-apk.com/en/user/filemanager/ujad91x4lsO2myT/download",
       },
     });
   } catch (error) {
