@@ -44,6 +44,10 @@ class _ServeMealPageState extends State<ServeMealPage> {
     }).length;
   }
 
+  /// Students who have voted and are still waiting to be served.
+  /// Walk-in / non-voted students are deliberately excluded.
+  int get votedPendingCount => notServedCount;
+
   // ------------------------------------------------------------
   // INIT
   // ------------------------------------------------------------
@@ -549,6 +553,168 @@ class _ServeMealPageState extends State<ServeMealPage> {
   }
 
   // ------------------------------------------------------------
+  // SERVE ALL VOTED STUDENTS
+  // ------------------------------------------------------------
+
+  Future<void> _handleServeAllVoted() async {
+    if (processingId != null || isLoading) {
+      return;
+    }
+
+    final List<Map<String, dynamic>> pendingVoters = _allVotes
+        .where((vote) {
+          final bool isServed = vote['isServed'] == true;
+          final String choice = vote['choice']?.toString().trim() ?? "";
+          final bool hasVoted = choice.isNotEmpty;
+
+          return !isServed && hasVoted;
+        })
+        .map((vote) => Map<String, dynamic>.from(vote))
+        .toList();
+
+    if (pendingVoters.isEmpty) {
+      _showSnackBar("No pending voted students to serve.", Colors.orange);
+      return;
+    }
+
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.restaurant_rounded, color: Colors.green),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  "Serve All Voted Students?",
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            "${pendingVoters.length} voted student(s) are still pending.\n\n"
+            "They will all be marked as served for "
+            "${DateFormat('dd/MM/yyyy').format(selectedDate)} • $selectedTime.\n\n"
+            "Walk-in / non-voted students will NOT be served.",
+            style: const TextStyle(fontSize: 14, height: 1.45),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text(
+                "CANCEL",
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+            ElevatedButton.icon(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              icon: const Icon(Icons.check_circle_rounded, size: 18),
+              label: const Text(
+                "SERVE ALL",
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) {
+      return;
+    }
+
+    int successCount = 0;
+    int failedCount = 0;
+
+    for (final Map<String, dynamic> student in pendingVoters) {
+      if (!mounted) return;
+
+      final String uniqueId =
+          student['voteId']?.toString() ??
+          student['studentId']?.toString() ??
+          student['_id']?.toString() ??
+          "";
+
+      if (uniqueId.isEmpty) {
+        failedCount++;
+        continue;
+      }
+
+      // Re-check the live list before serving this student.
+      final int currentIndex = _allVotes.indexWhere((vote) {
+        final String voteId = vote['voteId']?.toString() ?? "";
+        final String studentId = vote['studentId']?.toString() ?? "";
+
+        final String targetVoteId = student['voteId']?.toString() ?? "";
+        final String targetStudentId = student['studentId']?.toString() ?? "";
+
+        return (targetVoteId.isNotEmpty && voteId == targetVoteId) ||
+            (targetStudentId.isNotEmpty && studentId == targetStudentId);
+      });
+
+      if (currentIndex == -1 || _allVotes[currentIndex]['isServed'] == true) {
+        continue;
+      }
+
+      try {
+        await _handleServe(uniqueId, false, student);
+
+        if (!mounted) return;
+
+        final int updatedIndex = _allVotes.indexWhere((vote) {
+          final String voteId = vote['voteId']?.toString() ?? "";
+          final String studentId = vote['studentId']?.toString() ?? "";
+
+          final String targetVoteId = student['voteId']?.toString() ?? "";
+          final String targetStudentId = student['studentId']?.toString() ?? "";
+
+          return (targetVoteId.isNotEmpty && voteId == targetVoteId) ||
+              (targetStudentId.isNotEmpty && studentId == targetStudentId);
+        });
+
+        if (updatedIndex != -1 && _allVotes[updatedIndex]['isServed'] == true) {
+          successCount++;
+        } else {
+          failedCount++;
+        }
+      } catch (_) {
+        failedCount++;
+      }
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      processingId = null;
+      _sortAndFilterList();
+    });
+
+    if (failedCount == 0) {
+      _showSnackBar(
+        "All $successCount voted students have been served.",
+        Colors.green,
+      );
+    } else {
+      _showSnackBar(
+        "$successCount served • $failedCount failed.",
+        Colors.orange,
+      );
+    }
+  }
+
+  // ------------------------------------------------------------
   // FULL SCREEN STUDENT PHOTO
   // ------------------------------------------------------------
 
@@ -952,24 +1118,64 @@ class _ServeMealPageState extends State<ServeMealPage> {
   // ------------------------------------------------------------
 
   Widget _buildSummarySection() {
+    final bool hasPendingVotedStudents = votedPendingCount > 0;
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-      child: Row(
+      child: Column(
         children: [
-          _buildCounterCard(
-            "SERVED",
-            servedCount.toString(),
-            Colors.green,
-            Icons.check_circle_outline,
+          Row(
+            children: [
+              _buildCounterCard(
+                "SERVED",
+                servedCount.toString(),
+                Colors.green,
+                Icons.check_circle_outline,
+              ),
+
+              const SizedBox(width: 12),
+
+              _buildCounterCard(
+                "PENDING VOTES",
+                votedPendingCount.toString(),
+                Colors.orange,
+                Icons.pending_actions,
+              ),
+            ],
           ),
 
-          const SizedBox(width: 12),
+          const SizedBox(height: 10),
 
-          _buildCounterCard(
-            "PENDING VOTES",
-            notServedCount.toString(),
-            Colors.orange,
-            Icons.pending_actions,
+          SizedBox(
+            width: double.infinity,
+            height: 46,
+            child: ElevatedButton.icon(
+              onPressed:
+                  hasPendingVotedStudents && processingId == null && !isLoading
+                  ? _handleServeAllVoted
+                  : null,
+              icon: const Icon(Icons.restaurant_rounded, size: 20),
+              label: Text(
+                hasPendingVotedStudents
+                    ? "SERVE ALL VOTED • $votedPendingCount"
+                    : "ALL VOTED STUDENTS SERVED",
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 13,
+                  letterSpacing: 0.2,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: Colors.grey.shade200,
+                disabledForegroundColor: Colors.grey.shade500,
+                elevation: hasPendingVotedStudents ? 2 : 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
           ),
         ],
       ),

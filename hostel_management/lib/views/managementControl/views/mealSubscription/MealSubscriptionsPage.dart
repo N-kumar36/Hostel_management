@@ -80,7 +80,7 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
 
     setState(() => isBulkCompiling = true);
     try {
-      final res = await api.compileAllStudentSubscriptions(); 
+      final res = await api.compileAllStudentSubscriptions();
       if (res['success'] == true && mounted) {
         _showPageSnackBar(
           res['message'] ?? "All eligible meal packs compiled successfully!",
@@ -115,9 +115,13 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
         final student = s['studentId'] is Map ? s['studentId'] : {};
         final String name = (student['name'] ?? "").toString().toLowerCase();
         final String email = (student['email'] ?? "").toString().toLowerCase();
-        final String regNum = (student['regNum'] ?? "").toString().toLowerCase();
+        final String regNum = (student['regNum'] ?? "")
+            .toString()
+            .toLowerCase();
 
-        return name.contains(query) || email.contains(query) || regNum.contains(query);
+        return name.contains(query) ||
+            email.contains(query) ||
+            regNum.contains(query);
       }).toList();
     });
   }
@@ -127,12 +131,14 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
     String? rawPlanId = sub['mealsPlanId'] is Map
         ? sub['mealsPlanId']['_id']?.toString()
         : sub['mealsPlanId']?.toString();
-        
+
     String currentPlanId = rawPlanId ?? "";
     String currentStatus = (sub['status'] ?? "pending").toString();
     bool isSaving = false;
 
-    bool planExists = availablePlans.any((p) => p['_id'].toString() == currentPlanId);
+    bool planExists = availablePlans.any(
+      (p) => p['_id'].toString() == currentPlanId,
+    );
     if (!planExists && currentPlanId.isNotEmpty) {
       availablePlans.add({
         '_id': currentPlanId,
@@ -170,7 +176,11 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                   const SizedBox(height: 24),
                   const Text(
                     "MEAL PLAN",
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.green),
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green,
+                    ),
                   ),
                   DropdownButton<String>(
                     isExpanded: true,
@@ -179,7 +189,9 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                     items: availablePlans.map((p) {
                       return DropdownMenuItem<String>(
                         value: p['_id'].toString(),
-                        child: Text("${p['planType']} - ₹${p['monthlyPrice'] ?? p['price'] ?? 0}"),
+                        child: Text(
+                          "${p['planType']} - ₹${p['monthlyPrice'] ?? p['price'] ?? 0}",
+                        ),
                       );
                     }).toList(),
                     onChanged: (val) {
@@ -189,15 +201,25 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                   const SizedBox(height: 24),
                   const Text(
                     "STATUS",
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.green),
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green,
+                    ),
                   ),
                   DropdownButton<String>(
                     isExpanded: true,
                     value: currentStatus.toLowerCase(),
                     items: const [
-                      DropdownMenuItem(value: "pending", child: Text("Pending")),
+                      DropdownMenuItem(
+                        value: "pending",
+                        child: Text("Pending"),
+                      ),
                       DropdownMenuItem(value: "active", child: Text("Active")),
-                      DropdownMenuItem(value: "completed", child: Text("Completed")),
+                      DropdownMenuItem(
+                        value: "completed",
+                        child: Text("Completed"),
+                      ),
                     ],
                     onChanged: (val) {
                       if (val != null) setSheetState(() => currentStatus = val);
@@ -211,36 +233,53 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                         backgroundColor: Colors.green,
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                       onPressed: isSaving || currentPlanId.isEmpty
                           ? null
                           : () async {
                               setSheetState(() => isSaving = true);
                               try {
-                                final res = await api.updateSubscriptionByManager(
-                                  sub['_id'],
-                                  currentPlanId,
-                                  currentStatus,
-                                );
+                                final res = await api
+                                    .updateSubscriptionByManager(
+                                      sub['_id'],
+                                      currentPlanId,
+                                      currentStatus,
+                                    );
                                 if (mounted) {
                                   Navigator.pop(context);
-                                  _showPageSnackBar(res['message'] ?? "Updated successfully", Colors.green);
+                                  _showPageSnackBar(
+                                    res['message'] ?? "Updated successfully",
+                                    Colors.green,
+                                  );
                                   _fetchData();
                                 }
                               } catch (e) {
-                                if (mounted) _showPageSnackBar("Failed to update", Colors.red);
+                                if (mounted)
+                                  _showPageSnackBar(
+                                    "Failed to update",
+                                    Colors.red,
+                                  );
                               } finally {
-                                if (mounted) setSheetState(() => isSaving = false);
+                                if (mounted)
+                                  setSheetState(() => isSaving = false);
                               }
                             },
                       child: isSaving
                           ? const SizedBox(
                               height: 20,
                               width: 20,
-                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
                             )
-                          : const Text("SAVE CHANGES", style: TextStyle(fontWeight: FontWeight.bold)),
+                          : const Text(
+                              "SAVE CHANGES",
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
                     ),
                   ),
                 ],
@@ -272,13 +311,18 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text("CANCEL", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+            child: const Text(
+              "CANCEL",
+              style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
+            ),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
             onPressed: () async {
               Navigator.pop(ctx);
@@ -286,13 +330,19 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
               try {
                 final res = await api.deleteSubscriptionByManager(subId);
                 if (mounted) {
-                  _showPageSnackBar(res['message'] ?? "Deleted successfully", Colors.red);
+                  _showPageSnackBar(
+                    res['message'] ?? "Deleted successfully",
+                    Colors.red,
+                  );
                   _fetchData();
                 }
               } catch (e) {
                 if (mounted) {
                   setState(() => isLoading = false);
-                  _showPageSnackBar("Failed to delete subscription", Colors.red);
+                  _showPageSnackBar(
+                    "Failed to delete subscription",
+                    Colors.red,
+                  );
                 }
               }
             },
@@ -313,10 +363,16 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text("CANCEL", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+            child: const Text(
+              "CANCEL",
+              style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
+            ),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text("CONFIRM"),
           ),
@@ -342,7 +398,10 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text("Meal Subscriptions", style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text(
+          "Meal Subscriptions",
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         backgroundColor: Colors.green,
         foregroundColor: Colors.white,
         elevation: 0,
@@ -355,7 +414,10 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                       child: SizedBox(
                         width: 20,
                         height: 20,
-                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
                       ),
                     ),
                   )
@@ -376,10 +438,18 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
               decoration: InputDecoration(
                 hintText: "Search by student name, email, or reg num...",
                 hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
-                prefixIcon: const Icon(Icons.search, color: Colors.green, size: 20),
+                prefixIcon: const Icon(
+                  Icons.search,
+                  color: Colors.green,
+                  size: 20,
+                ),
                 suffixIcon: _searchController.text.isNotEmpty
                     ? IconButton(
-                        icon: const Icon(Icons.clear, color: Colors.grey, size: 18),
+                        icon: const Icon(
+                          Icons.clear,
+                          color: Colors.grey,
+                          size: 18,
+                        ),
                         onPressed: () {
                           _searchController.clear();
                           _onSearchOrFilterChanged();
@@ -389,7 +459,10 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                 filled: true,
                 fillColor: Colors.green.withOpacity(0.04),
                 contentPadding: EdgeInsets.zero,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
               ),
             ),
           ),
@@ -401,7 +474,13 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  const Text("Filter: ", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                  const Text(
+                    "Filter: ",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey,
+                    ),
+                  ),
                   const SizedBox(width: 8),
                   _filterChip('All'),
                   const SizedBox(width: 8),
@@ -416,34 +495,46 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
           ),
           Expanded(
             child: isLoading
-                ? const Center(child: CircularProgressIndicator(color: Colors.green))
+                ? const Center(
+                    child: CircularProgressIndicator(color: Colors.green),
+                  )
                 : _filteredSubscriptions.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.no_meals_outlined, size: 70, color: Colors.grey.shade300),
-                            const SizedBox(height: 16),
-                            Text(
-                              _searchController.text.isNotEmpty
-                                  ? "No matches found for search query"
-                                  : "No $selectedFilter Subscriptions Listed",
-                              style: TextStyle(color: Colors.grey.shade500, fontSize: 14, fontWeight: FontWeight.w500),
-                            ),
-                          ],
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.no_meals_outlined,
+                          size: 70,
+                          color: Colors.grey.shade300,
                         ),
-                      )
-                    : RefreshIndicator(
-                        onRefresh: _fetchData,
-                        color: Colors.green,
-                        child: ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-                          itemCount: _filteredSubscriptions.length,
-                          itemBuilder: (context, index) {
-                            return _buildSubscriptionCard(_filteredSubscriptions[index]);
-                          },
+                        const SizedBox(height: 16),
+                        Text(
+                          _searchController.text.isNotEmpty
+                              ? "No matches found for search query"
+                              : "No $selectedFilter Subscriptions Listed",
+                          style: TextStyle(
+                            color: Colors.grey.shade500,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
-                      ),
+                      ],
+                    ),
+                  )
+                : RefreshIndicator(
+                    onRefresh: _fetchData,
+                    color: Colors.green,
+                    child: ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+                      itemCount: _filteredSubscriptions.length,
+                      itemBuilder: (context, index) {
+                        return _buildSubscriptionCard(
+                          _filteredSubscriptions[index],
+                        );
+                      },
+                    ),
+                  ),
           ),
         ],
       ),
@@ -462,7 +553,11 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
         }
       },
       selectedColor: Colors.green,
-      labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black87, fontWeight: FontWeight.w600, fontSize: 12),
+      labelStyle: TextStyle(
+        color: isSelected ? Colors.white : Colors.black87,
+        fontWeight: FontWeight.w600,
+        fontSize: 12,
+      ),
       backgroundColor: Colors.grey.shade100,
     );
   }
@@ -514,7 +609,11 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                 CircleAvatar(
                   radius: 22,
                   backgroundColor: Colors.green.withOpacity(0.08),
-                  child: const Icon(Icons.person, color: Colors.green, size: 22),
+                  child: const Icon(
+                    Icons.person,
+                    color: Colors.green,
+                    size: 22,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -523,21 +622,38 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                     children: [
                       Text(
                         student['name'] ?? "Unknown Student",
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: Colors.black87,
+                        ),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         student['email'] ?? "No email linked",
-                        style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 12,
+                        ),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         "${student['department'] ?? 'N/A'} • Reg: ${student['regNum'] ?? 'N/A'}",
-                        style: TextStyle(color: Colors.grey.shade500, fontSize: 11, fontWeight: FontWeight.w500),
+                        style: TextStyle(
+                          color: Colors.grey.shade500,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                       if (formattedDate.isNotEmpty) ...[
                         const SizedBox(height: 4),
-                        Text("Subscribed: $formattedDate", style: TextStyle(color: Colors.grey.shade400, fontSize: 11)),
+                        Text(
+                          "Subscribed: $formattedDate",
+                          style: TextStyle(
+                            color: Colors.grey.shade400,
+                            fontSize: 11,
+                          ),
+                        ),
                       ],
                     ],
                   ),
@@ -546,7 +662,10 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: statusColor.withOpacity(0.08),
                         borderRadius: BorderRadius.circular(8),
@@ -554,7 +673,11 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                       ),
                       child: Text(
                         status.toUpperCase(),
-                        style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 10),
+                        style: TextStyle(
+                          color: statusColor,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 10,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 6),
@@ -562,15 +685,25 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         IconButton(
-                          icon: const Icon(Icons.edit_note, color: Colors.blueGrey, size: 22),
+                          icon: const Icon(
+                            Icons.edit_note,
+                            color: Colors.blueGrey,
+                            size: 22,
+                          ),
                           onPressed: () => _showEditSheet(sub),
                           constraints: const BoxConstraints(),
                           padding: const EdgeInsets.all(4),
                         ),
                         const SizedBox(width: 4),
                         IconButton(
-                          icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
-                          onPressed: () => _showDeleteConfirmation(sub['_id']?.toString() ?? ""),
+                          icon: const Icon(
+                            Icons.delete_outline,
+                            color: Colors.redAccent,
+                            size: 20,
+                          ),
+                          onPressed: () => _showDeleteConfirmation(
+                            sub['_id']?.toString() ?? "",
+                          ),
                           constraints: const BoxConstraints(),
                           padding: const EdgeInsets.all(4),
                         ),
@@ -594,11 +727,23 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _buildIndividualCardMetric("Total Plans", "$studentAllowed", Colors.black87),
+                  _buildIndividualCardMetric(
+                    "Total Plans",
+                    "$studentAllowed",
+                    Colors.black87,
+                  ),
                   Container(width: 1, height: 16, color: Colors.grey.shade200),
-                  _buildIndividualCardMetric("Consumed", "$studentUsed", Colors.orange.shade800),
+                  _buildIndividualCardMetric(
+                    "Consumed",
+                    "$studentUsed",
+                    Colors.orange.shade800,
+                  ),
                   Container(width: 1, height: 16, color: Colors.grey.shade200),
-                  _buildIndividualCardMetric("Remaining", "$studentLeft", Colors.green.shade700),
+                  _buildIndividualCardMetric(
+                    "Remaining",
+                    "$studentLeft",
+                    Colors.green.shade700,
+                  ),
                 ],
               ),
             ),
@@ -608,20 +753,38 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.calendar_month_outlined, size: 16, color: Colors.green),
+                    const Icon(
+                      Icons.calendar_month_outlined,
+                      size: 16,
+                      color: Colors.green,
+                    ),
                     const SizedBox(width: 6),
                     Text(
                       month,
-                      style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.green, fontSize: 13),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: Colors.green,
+                        fontSize: 13,
+                      ),
                     ),
                   ],
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(6)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
                   child: Text(
                     planType,
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey.shade800),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                      color: Colors.grey.shade800,
+                    ),
                   ),
                 ),
               ],
@@ -629,7 +792,11 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
             const SizedBox(height: 14),
             const Text(
               "Detailed Category Breakdown:",
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black54),
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: Colors.black54,
+              ),
             ),
             const SizedBox(height: 8),
             Wrap(
@@ -650,17 +817,29 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
     );
   }
 
-  Widget _buildIndividualCardMetric(String label, String value, Color textAccentColor) {
+  Widget _buildIndividualCardMetric(
+    String label,
+    String value,
+    Color textAccentColor,
+  ) {
     return Column(
       children: [
         Text(
           value,
-          style: TextStyle(fontSize: 15, color: textAccentColor, fontWeight: FontWeight.w900),
+          style: TextStyle(
+            fontSize: 15,
+            color: textAccentColor,
+            fontWeight: FontWeight.w900,
+          ),
         ),
         const SizedBox(height: 2),
         Text(
           label,
-          style: TextStyle(fontSize: 9, color: Colors.grey.shade500, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            fontSize: 9,
+            color: Colors.grey.shade500,
+            fontWeight: FontWeight.bold,
+          ),
         ),
       ],
     );
@@ -678,18 +857,28 @@ class _MealSubscriptionsPageState extends State<MealSubscriptionsPage> {
       decoration: BoxDecoration(
         color: isFull ? Colors.red.shade50 : Colors.grey.shade50,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: isFull ? Colors.red.shade100 : Colors.grey.shade200),
+        border: Border.all(
+          color: isFull ? Colors.red.shade100 : Colors.grey.shade200,
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
             "$label: ",
-            style: TextStyle(fontSize: 11, color: Colors.grey.shade700, fontWeight: FontWeight.w600),
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey.shade700,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           Text(
             "$used/$max",
-            style: TextStyle(fontSize: 11, color: isFull ? Colors.red : Colors.black87, fontWeight: FontWeight.bold),
+            style: TextStyle(
+              fontSize: 11,
+              color: isFull ? Colors.red : Colors.black87,
+              fontWeight: FontWeight.bold,
+            ),
           ),
         ],
       ),
