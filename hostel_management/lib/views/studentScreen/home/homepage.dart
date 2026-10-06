@@ -14,6 +14,7 @@ import 'package:HostelMess/views/studentScreen/votes/weekly_meals_page.dart';
 import 'package:HostelMess/services/api_service.dart';
 import 'package:HostelMess/services/localServices.dart';
 import 'package:HostelMess/views/studentScreen/active_students/active_students_page.dart';
+import 'package:HostelMess/views/studentScreen/polls/pollingPage.dart';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -501,6 +502,19 @@ class _HomepageState extends State<Homepage> {
                       MaterialPageRoute(
                         builder: (_) => const AllStudentVotes(),
                       ),
+                    ).then((_) => _handleRefresh());
+                  },
+                ),
+
+                _buildQuickActionCard(
+                  icon: Icons.how_to_vote_rounded,
+                  title: "Polls",
+                  subtitle: "Cast your opinion",
+                  color: const Color(0xFF7C3AED),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const PollingPage()),
                     ).then((_) => _handleRefresh());
                   },
                 ),

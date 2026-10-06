@@ -12,6 +12,7 @@ import 'package:HostelMess/views/managementControl/views/guestMeal/GuestMealPage
 import 'package:HostelMess/services/api_service.dart';
 import 'package:flutter/material.dart';
 import '../views/complains/ComplainsPage.dart';
+import 'package:HostelMess/views/managementControl/views/polls/AdminPollManagementPage.dart';
 
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
@@ -243,6 +244,16 @@ class _AdminScreenState extends State<AdminScreen> {
               color: Colors.blue,
               onTap: () {
                 _openPage(const VoteStatusSelectionPage());
+              },
+            ),
+
+            _adminCard(
+              title: "Poll Management",
+              description: "Create, schedule and manage student polls",
+              icon: Icons.how_to_vote_rounded,
+              color: const Color(0xFF7C3AED),
+              onTap: () {
+                _openPage(const AdminPollManagementPage());
               },
             ),
 

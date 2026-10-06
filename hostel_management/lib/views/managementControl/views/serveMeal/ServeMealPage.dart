@@ -1234,6 +1234,49 @@ class _ServeMealPageState extends State<ServeMealPage> {
   // ------------------------------------------------------------
   // STUDENT LIST
   // ------------------------------------------------------------
+  // ------------------------------------------------------------
+  // VOTE DATE & TIME
+  // Same flexible timestamp logic used for vote records.
+  // ------------------------------------------------------------
+
+  String? _getVoteDateTime(Map<String, dynamic> vote) {
+    final dynamic rawDate =
+        vote['votedAt'] ??
+        vote['voteTime'] ??
+        vote['votedOn'] ??
+        vote['createdAt'] ??
+        vote['created_at'] ??
+        vote['timestamp'];
+
+    if (rawDate == null) return null;
+
+    if (rawDate is DateTime) {
+      return DateFormat('dd MMM yyyy • hh:mm a').format(rawDate);
+    }
+
+    final String value = rawDate.toString().trim();
+
+    if (value.isEmpty) return null;
+
+    DateTime? parsed;
+
+    // ISO / normal DateTime format
+    parsed = DateTime.tryParse(value);
+
+    // MongoDB-style extended JSON:
+    // { "$date": "2026-10-06T12:30:00.000Z" }
+    if (parsed == null && rawDate is Map) {
+      final dynamic dateValue = rawDate['\$date'];
+
+      if (dateValue != null) {
+        parsed = DateTime.tryParse(dateValue.toString());
+      }
+    }
+
+    if (parsed == null) return null;
+
+    return DateFormat('dd MMM yyyy • hh:mm a').format(parsed.toLocal());
+  }
 
   Widget _buildList() {
     if (_filteredVotes.isEmpty) {
@@ -1357,7 +1400,9 @@ class _ServeMealPageState extends State<ServeMealPage> {
               children: [
                 const SizedBox(height: 4),
 
-                // Vote status
+                // --------------------------------------------------
+                // VOTE STATUS + VOTE DATE & TIME
+                // --------------------------------------------------
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 6,
@@ -1380,6 +1425,42 @@ class _ServeMealPageState extends State<ServeMealPage> {
                     ),
                   ),
                 ),
+
+                // --------------------------------------------------
+                // VOTE DATE & TIME
+                // --------------------------------------------------
+                if (hasVoted) ...[
+                  const SizedBox(height: 4),
+
+                  Builder(
+                    builder: (context) {
+                      final String? voteDateTime = _getVoteDateTime(vote);
+
+                      if (voteDateTime == null) {
+                        return const SizedBox.shrink();
+                      }
+
+                      return Row(
+                        children: [
+                          Icon(
+                            Icons.access_time_rounded,
+                            size: 11,
+                            color: Colors.blueGrey.shade500,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            "Voted: $voteDateTime",
+                            style: TextStyle(
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.blueGrey.shade600,
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ],
 
                 const SizedBox(height: 5),
 

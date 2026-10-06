@@ -2015,4 +2015,262 @@ class ApiService {
       return null;
     }
   }
+
+  // ========================================================================
+  // GENERAL POLL / VOTING SYSTEM
+  // ========================================================================
+
+  // ------------------------------------------------------------------------
+  // STUDENT - GET ALL POLLS
+  // ------------------------------------------------------------------------
+
+  Future<List<dynamic>> getPolls() async {
+    try {
+      final response = await http
+          .get(Uri.parse("$baseUrl/polls"), headers: await _getHeaders())
+          .timeout(const Duration(seconds: 10));
+
+      final decoded = _decodeResponse(response);
+
+      if (response.statusCode == 200 && decoded['success'] == true) {
+        return decoded['data'] ?? [];
+      }
+
+      debugPrint(
+        "Get Polls Error: ${decoded['message'] ?? response.statusCode}",
+      );
+
+      return [];
+    } on SocketException {
+      throw const SocketException("No Internet Connection");
+    } catch (e) {
+      debugPrint("Get Polls Exception: $e");
+      return [];
+    }
+  }
+
+  // ------------------------------------------------------------------------
+  // STUDENT - GET SINGLE POLL
+  // ------------------------------------------------------------------------
+
+  Future<Map<String, dynamic>?> getPollById(String pollId) async {
+    try {
+      final response = await http
+          .get(
+            Uri.parse("$baseUrl/polls/$pollId"),
+            headers: await _getHeaders(),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      final decoded = _decodeResponse(response);
+
+      if (response.statusCode == 200 && decoded['success'] == true) {
+        final data = decoded['data'];
+
+        if (data is Map) {
+          return Map<String, dynamic>.from(data);
+        }
+      }
+
+      debugPrint(
+        "Get Poll By ID Error: ${decoded['message'] ?? response.statusCode}",
+      );
+
+      return null;
+    } on SocketException {
+      throw const SocketException("No Internet Connection");
+    } catch (e) {
+      debugPrint("Get Poll By ID Exception: $e");
+      return null;
+    }
+  }
+
+  // ------------------------------------------------------------------------
+  // STUDENT - VOTE
+  // ------------------------------------------------------------------------
+
+  Future<Map<String, dynamic>> voteOnPoll({
+    required String pollId,
+    required String optionId,
+  }) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse("$baseUrl/polls/$pollId/vote"),
+            headers: await _getHeaders(),
+            body: jsonEncode({"optionId": optionId}),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      final decoded = _decodeResponse(response);
+
+      return {
+        ...decoded,
+        "success":
+            response.statusCode == 200 ||
+            response.statusCode == 201 && decoded['success'] == true,
+      };
+    } on SocketException {
+      return {"success": false, "message": "No Internet Connection"};
+    } catch (e) {
+      debugPrint("Vote On Poll Error: $e");
+
+      return {
+        "success": false,
+        "message": "Unable to submit vote. Please try again.",
+      };
+    }
+  }
+
+  // ------------------------------------------------------------------------
+  // STUDENT - GET RESULTS
+  // ------------------------------------------------------------------------
+
+  Future<Map<String, dynamic>?> getPollResults(String pollId) async {
+    try {
+      final response = await http
+          .get(
+            Uri.parse("$baseUrl/polls/$pollId/results"),
+            headers: await _getHeaders(),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      final decoded = _decodeResponse(response);
+
+      if (response.statusCode == 200 && decoded['success'] == true) {
+        final data = decoded['data'];
+
+        if (data is Map) {
+          return Map<String, dynamic>.from(data);
+        }
+      }
+
+      debugPrint(
+        "Get Poll Results Error: "
+        "${decoded['message'] ?? response.statusCode}",
+      );
+
+      return null;
+    } on SocketException {
+      throw const SocketException("No Internet Connection");
+    } catch (e) {
+      debugPrint("Get Poll Results Exception: $e");
+      return null;
+    }
+  }
+
+  // ========================================================================
+  // ADMIN - POLL MANAGEMENT
+  // ========================================================================
+
+  // ------------------------------------------------------------------------
+  // ADMIN - CREATE POLL
+  // ------------------------------------------------------------------------
+
+  Future<Map<String, dynamic>> createPoll({
+    required String title,
+    String description = "",
+    required List<String> options,
+    required DateTime startAt,
+    required DateTime endAt,
+    bool showResultsAfterClose = true,
+  }) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse("$baseUrl/polls/admin/create"),
+            headers: await _getHeaders(),
+            body: jsonEncode({
+              "title": title.trim(),
+              "description": description.trim(),
+              "options": options
+                  .map((option) => option.trim())
+                  .where((option) => option.isNotEmpty)
+                  .toList(),
+              "startAt": startAt.toUtc().toIso8601String(),
+              "endAt": endAt.toUtc().toIso8601String(),
+              "showResultsAfterClose": showResultsAfterClose,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      final decoded = _decodeResponse(response);
+
+      return {
+        ...decoded,
+        "success":
+            response.statusCode == 200 ||
+            response.statusCode == 201 && decoded['success'] == true,
+      };
+    } on SocketException {
+      return {"success": false, "message": "No Internet Connection"};
+    } catch (e) {
+      debugPrint("Create Poll Error: $e");
+
+      return {
+        "success": false,
+        "message": "Unable to create poll. Please try again.",
+      };
+    }
+  }
+
+  // ------------------------------------------------------------------------
+  // ADMIN - DELETE POLL
+  // ------------------------------------------------------------------------
+
+  Future<Map<String, dynamic>> deletePoll(String pollId) async {
+    try {
+      final response = await http
+          .delete(
+            Uri.parse("$baseUrl/polls/admin/$pollId"),
+            headers: await _getHeaders(),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      final decoded = _decodeResponse(response);
+
+      return {
+        ...decoded,
+        "success": response.statusCode == 200 && decoded['success'] == true,
+      };
+    } on SocketException {
+      return {"success": false, "message": "No Internet Connection"};
+    } catch (e) {
+      debugPrint("Delete Poll Error: $e");
+
+      return {"success": false, "message": "Unable to delete poll."};
+    }
+  }
+
+  // ------------------------------------------------------------------------
+  // ADMIN - DECLARE FINAL DECISION
+  // ------------------------------------------------------------------------
+
+  Future<Map<String, dynamic>> declarePollDecision({
+    required String pollId,
+    required String optionId,
+  }) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse("$baseUrl/polls/admin/$pollId/decision"),
+            headers: await _getHeaders(),
+            body: jsonEncode({"optionId": optionId}),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      final decoded = _decodeResponse(response);
+
+      return {
+        ...decoded,
+        "success": response.statusCode == 200 && decoded['success'] == true,
+      };
+    } on SocketException {
+      return {"success": false, "message": "No Internet Connection"};
+    } catch (e) {
+      debugPrint("Declare Poll Decision Error: $e");
+
+      return {"success": false, "message": "Unable to declare final decision."};
+    }
+  }
 }
