@@ -19,7 +19,7 @@ import MealPlanRouter from "./routes/mealPlan.route.js";
 import shoppingRouter from "./routes/shopping.router.js";
 import notificationRoutes from "./routes/notification.routes.js";
 import appVersionRoutes from "./routes/appVersion.routes.js";
-
+import pollRoutes from "./routes/poll.routes.js";
 
 // app.get("/api/test", (req, res) => {
 //   res.json({message: "hi  Hello word"})
@@ -53,7 +53,7 @@ app.use("/api/upi", upiRoute);
 app.use("/api/meal-plan", MealPlanRouter);
 app.use("/api/shopping-list", shoppingRouter);
 app.use("/api/notifications", notificationRoutes);
-
+app.use("/api/polls", pollRoutes);
 
 
 // 404 Handler
