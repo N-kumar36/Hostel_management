@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:HostelMess/services/api_service.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 
 class ServeMealPage extends StatefulWidget {
   const ServeMealPage({super.key});
@@ -80,15 +81,47 @@ class _ServeMealPageState extends State<ServeMealPage> {
 
     setState(() {
       _filteredVotes = _allVotes.where((vote) {
-        final String name = (vote['studentName'] ?? "")
+        final Map<String, dynamic> student = Map<String, dynamic>.from(vote);
+
+        final String name = (student['studentName'] ?? '')
             .toString()
             .toLowerCase();
 
-        return name.contains(query);
+        final String studentId = _getStudentId(student).toLowerCase();
+
+        return name.contains(query) || studentId.contains(query);
       }).toList();
     });
   }
 
+  Future<void> _scanStudentQr() async {
+    final String? scannedId = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => const _StudentQrScannerPage()),
+    );
+
+    if (!mounted || scannedId == null || scannedId.trim().isEmpty) {
+      return;
+    }
+
+    final String studentId = scannedId.trim();
+
+    // Populate the search bar with the scanned student ID.
+    _searchController.text = studentId;
+
+    final bool studentExists = _allVotes.any((vote) {
+      final Map<String, dynamic> student = Map<String, dynamic>.from(vote);
+
+      return _getStudentId(student) == studentId;
+    });
+
+    if (!studentExists) {
+      _showSnackBar(
+        'Student ID not found in the selected meal records.',
+        Colors.orange,
+      );
+    }
+  }
   // ------------------------------------------------------------
   // FETCH DATA
   // ------------------------------------------------------------
@@ -934,28 +967,56 @@ class _ServeMealPageState extends State<ServeMealPage> {
   Widget _buildSearchBar() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: TextField(
-        controller: _searchController,
-        decoration: InputDecoration(
-          hintText: "Search student name...",
-          hintStyle: const TextStyle(fontSize: 13, color: Colors.grey),
-          prefixIcon: const Icon(Icons.search, color: Colors.orange, size: 20),
-          suffixIcon: _searchController.text.isNotEmpty
-              ? IconButton(
-                  icon: const Icon(Icons.clear, size: 18),
-                  onPressed: () {
-                    _searchController.clear();
-                  },
-                )
-              : null,
-          filled: true,
-          fillColor: Colors.orange.withOpacity(0.05),
-          contentPadding: EdgeInsets.zero,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide.none,
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Search student name or ID...',
+                hintStyle: const TextStyle(fontSize: 13, color: Colors.grey),
+                prefixIcon: const Icon(
+                  Icons.search,
+                  color: Colors.orange,
+                  size: 20,
+                ),
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, size: 18),
+                        onPressed: () {
+                          _searchController.clear();
+                        },
+                      )
+                    : null,
+                filled: true,
+                fillColor: Colors.orange.withOpacity(0.05),
+                contentPadding: EdgeInsets.zero,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
           ),
-        ),
+          const SizedBox(width: 8),
+          Material(
+            color: Colors.orange,
+            borderRadius: BorderRadius.circular(12),
+            child: InkWell(
+              onTap: _scanStudentQr,
+              borderRadius: BorderRadius.circular(12),
+              child: const SizedBox(
+                width: 48,
+                height: 48,
+                child: Icon(
+                  Icons.qr_code_scanner_rounded,
+                  color: Colors.white,
+                  size: 25,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1522,6 +1583,73 @@ class _ServeMealPageState extends State<ServeMealPage> {
           ),
         );
       },
+    );
+  }
+}
+
+class _StudentQrScannerPage extends StatefulWidget {
+  const _StudentQrScannerPage({super.key});
+
+  @override
+  State<_StudentQrScannerPage> createState() => _StudentQrScannerPageState();
+}
+
+class _StudentQrScannerPageState extends State<_StudentQrScannerPage> {
+  bool _hasScanned = false;
+
+  void _onDetect(BarcodeCapture capture) {
+    if (_hasScanned) return;
+
+    for (final barcode in capture.barcodes) {
+      final String value = barcode.rawValue?.trim() ?? '';
+
+      if (value.isNotEmpty) {
+        _hasScanned = true;
+        Navigator.of(context).pop(value);
+        return;
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('Scan Student QR'),
+        backgroundColor: Colors.orange,
+        foregroundColor: Colors.white,
+      ),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          MobileScanner(onDetect: _onDetect),
+          Center(
+            child: Container(
+              width: 260,
+              height: 260,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.orange, width: 3),
+                borderRadius: BorderRadius.circular(22),
+              ),
+            ),
+          ),
+          const Positioned(
+            left: 24,
+            right: 24,
+            bottom: 55,
+            child: Text(
+              'Place the student QR code inside the frame',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -6,6 +6,7 @@ import 'package:HostelMess/services/api_service.dart';
 import 'package:HostelMess/services/localServices.dart';
 import '../../auth/login/login_page.dart';
 import 'package:HostelMess/core/theme/theme_controller.dart';
+import 'package:HostelMess/views/utility_screen/current_meal_qr_page.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -645,6 +646,30 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
               );
             },
+          ),
+
+          // Student QR Code
+          IconButton(
+            tooltip: 'My Student QR',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const CurrentMealQrPage()),
+              );
+            },
+            icon: Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: primarySoft,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.qr_code_2_rounded,
+                color: primary,
+                size: 21,
+              ),
+            ),
           ),
 
           // ======================================================
