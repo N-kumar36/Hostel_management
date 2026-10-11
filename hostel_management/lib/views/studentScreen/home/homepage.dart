@@ -15,6 +15,7 @@ import 'package:HostelMess/services/api_service.dart';
 import 'package:HostelMess/services/localServices.dart';
 import 'package:HostelMess/views/studentScreen/active_students/active_students_page.dart';
 import 'package:HostelMess/views/studentScreen/polls/pollingPage.dart';
+import 'package:HostelMess/views/utility_screen/game.dart';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -507,7 +508,7 @@ class _HomepageState extends State<Homepage> {
                 ),
 
                 _buildQuickActionCard(
-                  icon: Icons.how_to_vote_rounded,
+                  icon: Icons.poll_rounded,
                   title: "Polls",
                   subtitle: "Cast your opinion",
                   color: const Color(0xFF7C3AED),
@@ -569,6 +570,18 @@ class _HomepageState extends State<Homepage> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => const FinanceViews()),
+                    );
+                  },
+                ),
+                _buildQuickActionCard(
+                  icon: Icons.directions_run_rounded,
+                  title: "Maths Runner",
+                  subtitle: "Play offline Anytime",
+                  color: const Color(0xFF0D9488),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const MathsGamePage()),
                     );
                   },
                 ),

@@ -98,24 +98,24 @@ class _SplashScreenState extends State<SplashScreen>
 
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1500),
+      duration: const Duration(milliseconds: 1000),
     );
 
     _fadeAnimation = CurvedAnimation(
       parent: _controller,
-      curve: const Interval(0.0, 0.6, curve: Curves.easeIn),
+      curve: const Interval(0.0, 0.65, curve: Curves.easeOut),
     );
 
     _scaleAnimation = CurvedAnimation(
       parent: _controller,
-      curve: const Interval(0.0, 0.8, curve: Curves.elasticOut),
+      curve: const Interval(0.0, 0.85, curve: Curves.easeOutBack),
     );
 
     _slideAnimation =
-        Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
+        Tween<Offset>(begin: const Offset(0, 0.18), end: Offset.zero).animate(
           CurvedAnimation(
             parent: _controller,
-            curve: const Interval(0.2, 1.0, curve: Curves.easeOutBack),
+            curve: const Interval(0.05, 0.85, curve: Curves.easeOutCubic),
           ),
         );
 
@@ -141,7 +141,7 @@ class _SplashScreenState extends State<SplashScreen>
       // ----------------------------------------------------------
       // Keep the original splash duration
       // ----------------------------------------------------------
-      await Future.delayed(const Duration(seconds: 2));
+      await Future.delayed(const Duration(milliseconds: 500));
 
       if (!mounted) return;
 
