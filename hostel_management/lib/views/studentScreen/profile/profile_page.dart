@@ -7,6 +7,7 @@ import 'package:HostelMess/services/localServices.dart';
 import '../../auth/login/login_page.dart';
 import 'package:HostelMess/core/theme/theme_controller.dart';
 import 'package:HostelMess/views/utility_screen/current_meal_qr_page.dart';
+import 'package:HostelMess/views/utility_screen/student_id_card_page.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -1305,6 +1306,21 @@ class _ProfilePageState extends State<ProfilePage> {
       ),
       child: Column(
         children: [
+          _actionButton(
+            icon: Icons.badge_outlined,
+            title: 'Student I-Card',
+            subtitle: 'View your digital student identity card',
+            color: primary,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const StudentIdCardPage(),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 8),
           _actionButton(
             icon: Icons.edit_rounded,
             title: 'Edit Profile',
