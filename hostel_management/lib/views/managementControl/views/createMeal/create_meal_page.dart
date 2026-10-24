@@ -145,7 +145,7 @@ class _MealManagementPageState extends State<MealManagementPage> {
     } catch (e) {
       debugPrint("Routine fetch failed: $e");
     }
-    final context = null;
+
     {
       if (mounted) setState(() => isRoutineLoading = false);
     }

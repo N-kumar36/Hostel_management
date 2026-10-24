@@ -37,15 +37,12 @@ class _HistoryPageState extends State<HistoryPage> {
       ? const Color(0xFF2C303A)
       : const Color(0xFFE7E7EF);
 
-  Color get _divider => Theme.of(context).dividerColor;
-
   bool get _isDark => Theme.of(context).brightness == Brightness.dark;
 
   // Semantic colors
   static const Color green = Color(0xFF16A05D);
   static const Color orange = Color(0xFFD97706);
   static const Color red = Color(0xFFDC2626);
-  static const Color blue = Color(0xFF2563EB);
 
   // ===========================================================================
   // PERSONAL HISTORY

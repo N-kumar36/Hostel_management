@@ -33,6 +33,7 @@ dependencies:
   path_provider: ^2.1.5
   open_filex: ^4.7.0
   mobile_scanner: ^7.0.1
+  dynamic_app_icon_changer: ^0.0.3
 
 
 dev_dependencies:

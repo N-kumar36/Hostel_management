@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'dart:convert';
+
 import 'package:HostelMess/services/api_service.dart';
 import 'student_meal_audit_page.dart';
 
@@ -213,11 +213,21 @@ class _StudentDetailsPageState extends State<StudentDetailsPage> {
                           labelText: "Academic Year",
                           border: OutlineInputBorder(),
                         ),
-                        items: ["1st Year", "2nd Year", "3rd Year", "4th Year", "5th Year"]
-                            .map(
-                              (y) => DropdownMenuItem(value: y, child: Text(y)),
-                            )
-                            .toList(),
+                        items:
+                            [
+                                  "1st Year",
+                                  "2nd Year",
+                                  "3rd Year",
+                                  "4th Year",
+                                  "5th Year",
+                                ]
+                                .map(
+                                  (y) => DropdownMenuItem(
+                                    value: y,
+                                    child: Text(y),
+                                  ),
+                                )
+                                .toList(),
                         onChanged: (v) => setModalState(() => currentYear = v!),
                       ),
                       const SizedBox(height: 12),

@@ -32,7 +32,6 @@ class _ActiveStudentsPageState extends State<ActiveStudentsPage> {
 
   static const Color green = Color(0xFF16A05D);
   static const Color red = Color(0xFFDC2626);
-  static const Color orange = Color(0xFFD97706);
 
   // ============================================================
   // THEME HELPERS

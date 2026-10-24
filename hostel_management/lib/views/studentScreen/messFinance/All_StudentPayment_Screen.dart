@@ -97,14 +97,6 @@ class _StudentPaymentScreenState extends State<StudentPaymentScreen> {
     return payment['status']?.toString().toLowerCase() ?? 'pending';
   }
 
-  bool _isPaid(dynamic payment) {
-    return _getStatus(payment) == 'success';
-  }
-
-  bool _isProcessing(dynamic payment) {
-    return _getStatus(payment) == 'processing';
-  }
-
   // ---------------------------------------------------------------------------
   // FINANCIAL SUMMARY
   // ---------------------------------------------------------------------------

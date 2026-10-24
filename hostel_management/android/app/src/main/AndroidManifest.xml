@@ -1,57 +1,116 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-permission android:name="android.permission.INTERNET"/>
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+<uses-permission android:name="android.permission.INTERNET"/>
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+<uses-permission android:name="android.permission.CAMERA"/>
+<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+<uses-permission
+     android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+     android:maxSdkVersion="28"/>
 
-    <application
-        android:label="HostelMess"
-        android:name="${applicationName}"
-        android:icon="@mipmap/launcher_icon"
-        android:usesCleartextTraffic="true">
+<application
+    android:label="HostelMess"
+    android:name="${applicationName}"
+    android:icon="@mipmap/launcher_icon"
+    android:usesCleartextTraffic="true">
 
-        
-        <activity
-            android:name=".MainActivity"
-            android:exported="true"
-            android:launchMode="singleTop"
-            android:taskAffinity=""
-            android:theme="@style/LaunchTheme"
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
-            android:hardwareAccelerated="true"
-            android:windowSoftInputMode="adjustResize">
-            
-            <meta-data
-                android:name="io.flutter.embedding.android.NormalTheme"
-                android:resource="@style/NormalTheme"
-            />
-            
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity>
+    <!-- Main Flutter activity: no launcher intent filter here. -->
+    <activity
+        android:name=".MainActivity"
+        android:exported="true"
+        android:launchMode="singleTop"
+        android:taskAffinity=""
+        android:theme="@style/LaunchTheme"
+        android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+        android:hardwareAccelerated="true"
+        android:windowSoftInputMode="adjustResize">
 
         <meta-data
-            android:name="flutterEmbedding"
-            android:value="2"/>
-    </application>
+            android:name="io.flutter.embedding.android.NormalTheme"
+            android:resource="@style/NormalTheme"/>
+    </activity>
 
-    <queries>
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="upi" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.PROCESS_TEXT"/>
-            <data android:mimeType="text/plain"/>
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.GET_CONTENT" />
-            <data android:mimeType="image/*" />
-        </intent>
-    </queries>
+    <meta-data
+        android:name="flutterEmbedding"
+        android:value="2"/>
+
+    <!-- Default HostelMess icon -->
+    <activity-alias
+        android:name=".DefaultIcon"
+        android:targetActivity=".MainActivity"
+        android:enabled="true"
+        android:exported="true"
+        android:icon="@mipmap/launcher_icon"
+        android:label="HostelMess">
+
+        <intent-filter>
+            <action android:name="android.intent.action.MAIN"/>
+            <category android:name="android.intent.category.LAUNCHER"/>
+        </intent-filter>
+    </activity-alias>
+
+    <!-- Kazi Nazrul University icon -->
+    <activity-alias
+        android:name=".IconKazi"
+        android:targetActivity=".MainActivity"
+        android:enabled="false"
+        android:exported="true"
+        android:icon="@mipmap/ic_launcher_kazi"
+        android:label="HostelMess">
+
+        <intent-filter>
+            <action android:name="android.intent.action.MAIN"/>
+            <category android:name="android.intent.category.LAUNCHER"/>
+        </intent-filter>
+    </activity-alias>
+
+    <!-- B.B. College icon -->
+    <activity-alias
+        android:name=".IconBBC"
+        android:targetActivity=".MainActivity"
+        android:enabled="false"
+        android:exported="true"
+        android:icon="@mipmap/ic_launcher_bbc"
+        android:label="HostelMess">
+
+        <intent-filter>
+            <action android:name="android.intent.action.MAIN"/>
+            <category android:name="android.intent.category.LAUNCHER"/>
+        </intent-filter>
+    </activity-alias>
+
+    <!-- Green icon -->
+    <activity-alias
+        android:name=".IconGreen"
+        android:targetActivity=".MainActivity"
+        android:enabled="false"
+        android:exported="true"
+        android:icon="@mipmap/ic_launcher_green"
+        android:label="HostelMess">
+
+        <intent-filter>
+            <action android:name="android.intent.action.MAIN"/>
+            <category android:name="android.intent.category.LAUNCHER"/>
+        </intent-filter>
+    </activity-alias>
+
+</application>
+
+<queries>
+    <intent>
+        <action android:name="android.intent.action.VIEW"/>
+        <data android:scheme="upi"/>
+    </intent>
+
+    <intent>
+        <action android:name="android.intent.action.PROCESS_TEXT"/>
+        <data android:mimeType="text/plain"/>
+    </intent>
+
+    <intent>
+        <action android:name="android.intent.action.GET_CONTENT"/>
+        <data android:mimeType="image/*"/>
+    </intent>
+</queries>
 
 </manifest>

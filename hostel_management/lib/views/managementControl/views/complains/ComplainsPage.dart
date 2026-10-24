@@ -31,7 +31,7 @@ class _ComplainsPageState extends State<ComplainsPage> {
   // ===========================================================================
 
   static const Color _primary = Color(0xFF5B4FE9);
-  static const Color _primaryDark = Color(0xFF4338CA);
+
   static const Color _background = Color(0xFFF7F8FC);
 
   static const Color _textDark = Color(0xFF111827);

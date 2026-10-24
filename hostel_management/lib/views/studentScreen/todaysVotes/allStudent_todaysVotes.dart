@@ -28,7 +28,7 @@ class _AllStudentVotesState extends State<AllStudentVotes> {
   static const Color orange = Color(0xFFFFA726);
   static const Color blue = Color(0xFF3867FF);
   static const Color red = Color(0xFFFF5252);
-  static const Color teal = Color(0xFF10A6A0);
+
   static const Color green = Color(0xFF18A957);
 
   // ============================================================

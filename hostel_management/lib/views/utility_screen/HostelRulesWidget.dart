@@ -16,9 +16,6 @@ class HostelRulesWidget extends StatelessWidget {
   static const Color danger = Color(0xFFDC2626);
   static const Color blue = Color(0xFF2563EB);
 
-  Color _background(BuildContext context) =>
-      Theme.of(context).scaffoldBackgroundColor;
-
   Color _surface(BuildContext context) => Theme.of(context).colorScheme.surface;
 
   Color _textPrimary(BuildContext context) =>
@@ -50,10 +47,6 @@ class HostelRulesWidget extends StatelessWidget {
 
   Color _softOrange(BuildContext context) {
     return _isDark(context) ? const Color(0xFF382819) : const Color(0xFFFFF7ED);
-  }
-
-  Color _softRed(BuildContext context) {
-    return _isDark(context) ? const Color(0xFF351D24) : const Color(0xFFFFF1F2);
   }
 
   List<BoxShadow> _cardShadow(BuildContext context) {

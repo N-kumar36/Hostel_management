@@ -7,10 +7,10 @@ import 'package:HostelMess/views/notificationScreen/notification_page.dart';
 import 'package:HostelMess/views/studentScreen/messFinance/All_StudentPayment_Screen.dart';
 import 'package:HostelMess/views/studentScreen/home/DailyMenuCard.dart';
 import 'package:HostelMess/views/utility_screen/RoutineScreen.dart';
-import 'package:HostelMess/views/studentScreen/profile/profile_page.dart';
+
 import 'package:HostelMess/views/utility_screen/HostelRulesWidget.dart';
 import 'package:HostelMess/views/utility_screen/meal_packages_section.dart';
-import 'package:HostelMess/views/studentScreen/votes/weekly_meals_page.dart';
+
 import 'package:HostelMess/services/api_service.dart';
 import 'package:HostelMess/services/localServices.dart';
 import 'package:HostelMess/views/studentScreen/active_students/active_students_page.dart';
@@ -40,11 +40,6 @@ class _HomepageState extends State<Homepage> {
   // ===========================================================================
 
   static const Color primary = Color(0xFF5B4FE9);
-  static const Color primaryDark = Color(0xFF4338CA);
-
-  static const Color lightBackground = Color(0xFFF6F7FB);
-  static const Color lightTextDark = Color(0xFF111827);
-  static const Color lightTextGrey = Color(0xFF6B7280);
 
   // ===========================================================================
   // THEME HELPERS
@@ -72,14 +67,6 @@ class _HomepageState extends State<Homepage> {
     return brightness == Brightness.dark
         ? const Color(0xFF2A2E39)
         : const Color(0xFFE5E7EB);
-  }
-
-  Color get _softSurface {
-    final brightness = Theme.of(context).brightness;
-
-    return brightness == Brightness.dark
-        ? const Color(0xFF20242D)
-        : Colors.white;
   }
 
   Color get _softPrimary {

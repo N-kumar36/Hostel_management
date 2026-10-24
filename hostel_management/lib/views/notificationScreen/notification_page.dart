@@ -435,8 +435,6 @@ class _NotificationPageState extends State<NotificationPage> {
   }
 
   Widget _buildSummaryCard(ThemeData theme) {
-    final isDark = theme.brightness == Brightness.dark;
-
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(

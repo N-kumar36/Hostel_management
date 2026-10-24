@@ -45,8 +45,6 @@ class _ComplainPageState extends State<ComplainPage> {
 
   Color get _textGrey => Theme.of(context).colorScheme.onSurfaceVariant;
 
-  Color get _divider => Theme.of(context).dividerColor;
-
   bool get _isDark => Theme.of(context).brightness == Brightness.dark;
 
   Color get _borderColor =>

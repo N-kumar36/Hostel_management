@@ -49,12 +49,6 @@ class _FinancialsPageState extends State<FinancialsPage> {
   Color get _borderColor =>
       _isDark ? const Color(0xFF2C303A) : const Color(0xFFE5E7EB);
 
-  Color get _inputSurface =>
-      _isDark ? const Color(0xFF20242C) : const Color(0xFFF8F9FC);
-
-  Color get _disabledSurface =>
-      _isDark ? const Color(0xFF292D35) : const Color(0xFFE5E7EB);
-
   // ============================================================
   // BUILD
   // ============================================================

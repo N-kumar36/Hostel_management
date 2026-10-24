@@ -8,6 +8,7 @@ import '../../auth/login/login_page.dart';
 import 'package:HostelMess/core/theme/theme_controller.dart';
 import 'package:HostelMess/views/utility_screen/current_meal_qr_page.dart';
 import 'package:HostelMess/views/utility_screen/student_id_card_page.dart';
+import 'package:HostelMess/views/utility_screen/app_icon_changer_page.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -1320,6 +1321,22 @@ class _ProfilePageState extends State<ProfilePage> {
               );
             },
           ),
+          const SizedBox(height: 8),
+          _actionButton(
+            icon: Icons.app_settings_alt_rounded,
+            title: 'Change App Icon',
+            subtitle: 'Personalize your HostelMess app icon',
+            color: primary,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const AppIconChangerPage(),
+                ),
+              );
+            },
+          ),
+
           const SizedBox(height: 8),
           _actionButton(
             icon: Icons.edit_rounded,
