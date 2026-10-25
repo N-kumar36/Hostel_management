@@ -1,116 +1,134 @@
+
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-<uses-permission android:name="android.permission.INTERNET"/>
-<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
-<uses-permission android:name="android.permission.CAMERA"/>
-<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
-<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
-<uses-permission
-     android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-     android:maxSdkVersion="28"/>
 
-<application
-    android:label="HostelMess"
-    android:name="${applicationName}"
-    android:icon="@mipmap/launcher_icon"
-    android:usesCleartextTraffic="true">
+    <!-- Network permissions -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- Main Flutter activity: no launcher intent filter here. -->
-    <activity
-        android:name=".MainActivity"
-        android:exported="true"
-        android:launchMode="singleTop"
-        android:taskAffinity=""
-        android:theme="@style/LaunchTheme"
-        android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
-        android:hardwareAccelerated="true"
-        android:windowSoftInputMode="adjustResize">
+    <!-- Camera permission -->
+    <uses-permission android:name="android.permission.CAMERA" />
 
-        <meta-data
-            android:name="io.flutter.embedding.android.NormalTheme"
-            android:resource="@style/NormalTheme"/>
-    </activity>
+    <!-- Notifications on Android 13+ -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <meta-data
-        android:name="flutterEmbedding"
-        android:value="2"/>
+    <!-- Legacy storage permissions for older Android versions -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
 
-    <!-- Default HostelMess icon -->
-    <activity-alias
-        android:name=".DefaultIcon"
-        android:targetActivity=".MainActivity"
-        android:enabled="true"
-        android:exported="true"
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
+    <!-- Allow installation package requests if required by your app -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <application
+        android:name="${applicationName}"
+        android:label="HostelMess"
         android:icon="@mipmap/launcher_icon"
-        android:label="HostelMess">
+        android:usesCleartextTraffic="true">
 
-        <intent-filter>
-            <action android:name="android.intent.action.MAIN"/>
-            <category android:name="android.intent.category.LAUNCHER"/>
-        </intent-filter>
-    </activity-alias>
+        <!-- Main Flutter activity: no launcher filter here because aliases handle launching -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
 
-    <!-- Kazi Nazrul University icon -->
-    <activity-alias
-        android:name=".IconKazi"
-        android:targetActivity=".MainActivity"
-        android:enabled="false"
-        android:exported="true"
-        android:icon="@mipmap/ic_launcher_kazi"
-        android:label="HostelMess">
+            <meta-data
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/NormalTheme" />
+        </activity>
 
-        <intent-filter>
-            <action android:name="android.intent.action.MAIN"/>
-            <category android:name="android.intent.category.LAUNCHER"/>
-        </intent-filter>
-    </activity-alias>
+        <!-- Default launcher icon: enabled by default -->
+        <activity-alias
+            android:name=".DefaultIcon"
+            android:targetActivity=".MainActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/launcher_icon"
+            android:label="HostelMess">
 
-    <!-- B.B. College icon -->
-    <activity-alias
-        android:name=".IconBBC"
-        android:targetActivity=".MainActivity"
-        android:enabled="false"
-        android:exported="true"
-        android:icon="@mipmap/ic_launcher_bbc"
-        android:label="HostelMess">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
-        <intent-filter>
-            <action android:name="android.intent.action.MAIN"/>
-            <category android:name="android.intent.category.LAUNCHER"/>
-        </intent-filter>
-    </activity-alias>
+        <!-- Kazi Nazrul University icon -->
+        <activity-alias
+            android:name=".IconKazi"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_kazi"
+            android:label="HostelMess">
 
-    <!-- Green icon -->
-    <activity-alias
-        android:name=".IconGreen"
-        android:targetActivity=".MainActivity"
-        android:enabled="false"
-        android:exported="true"
-        android:icon="@mipmap/ic_launcher_green"
-        android:label="HostelMess">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
-        <intent-filter>
-            <action android:name="android.intent.action.MAIN"/>
-            <category android:name="android.intent.category.LAUNCHER"/>
-        </intent-filter>
-    </activity-alias>
+        <!-- B.B. College icon -->
+        <activity-alias
+            android:name=".IconBBC"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_bbc"
+            android:label="HostelMess">
 
-</application>
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
-<queries>
-    <intent>
-        <action android:name="android.intent.action.VIEW"/>
-        <data android:scheme="upi"/>
-    </intent>
+        <!-- Green launcher icon -->
+        <activity-alias
+            android:name=".IconGreen"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_green"
+            android:label="HostelMess">
 
-    <intent>
-        <action android:name="android.intent.action.PROCESS_TEXT"/>
-        <data android:mimeType="text/plain"/>
-    </intent>
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
-    <intent>
-        <action android:name="android.intent.action.GET_CONTENT"/>
-        <data android:mimeType="image/*"/>
-    </intent>
-</queries>
+        <!-- Flutter embedding -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+
+    </application>
+
+    <!-- UPI apps -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="upi" />
+        </intent>
+
+        <!-- Text processing support -->
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT" />
+            <data android:mimeType="text/plain" />
+        </intent>
+
+        <!-- Image selection support -->
+        <intent>
+            <action android:name="android.intent.action.GET_CONTENT" />
+            <data android:mimeType="image/*" />
+        </intent>
+    </queries>
 
 </manifest>
