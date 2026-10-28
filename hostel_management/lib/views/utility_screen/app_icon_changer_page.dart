@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:dynamic_app_icon_changer/dynamic_app_icon_changer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -47,20 +48,30 @@ class _AppIconChangerPageState extends State<AppIconChangerPage> {
   @override
   void initState() {
     super.initState();
-    _loadSelection();
+
+    // Native app icon functionality is unavailable on the web.
+    if (!kIsWeb) {
+      _loadSelection();
+    }
   }
 
   Future<void> _loadSelection() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (!mounted) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
 
-    setState(() {
-      _selectedIcon = prefs.getString('selected_app_icon') ?? 'default';
-    });
+      if (!mounted) return;
+
+      setState(() {
+        _selectedIcon = prefs.getString('selected_app_icon') ?? 'default';
+      });
+    } catch (_) {
+      // Keep the default selection if preferences cannot be loaded.
+    }
   }
 
   Future<void> _changeIcon(String icon) async {
-    if (_loading || icon == _selectedIcon) return;
+    // Prevent attempts to change the launcher icon in a browser.
+    if (kIsWeb || _loading || icon == _selectedIcon) return;
 
     setState(() => _loading = true);
 
@@ -78,7 +89,7 @@ class _AppIconChangerPageState extends State<AppIconChangerPage> {
           alias = 'IconGreen';
           break;
         default:
-          alias = null; // Restore the default icon
+          alias = null;
       }
 
       await DynamicAppIconChanger.setAlternateIconName(alias, relaunch: false);
@@ -87,6 +98,7 @@ class _AppIconChangerPageState extends State<AppIconChangerPage> {
       await prefs.setString('selected_app_icon', icon);
 
       if (!mounted) return;
+
       setState(() => _selectedIcon = icon);
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -101,14 +113,98 @@ class _AppIconChangerPageState extends State<AppIconChangerPage> {
         context,
       ).showSnackBar(SnackBar(content: Text('Could not change icon: $e')));
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
+  }
+
+  Widget _buildWebUnavailable(ThemeData theme) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 110,
+                height: 110,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(32),
+                ),
+                child: Icon(
+                  Icons.phonelink_rounded,
+                  size: 56,
+                  color: theme.colorScheme.onPrimaryContainer,
+                ),
+              ),
+              const SizedBox(height: 28),
+              Text(
+                'Feature Not Available',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Changing the HostelMess app icon is only supported '
+                'in the installed mobile app. This feature is not '
+                'available in the web version.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  height: 1.6,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.info_outline_rounded,
+                      color: theme.colorScheme.primary,
+                      size: 28,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Install HostelMess on your Android device '
+                        'to change its home-screen icon.',
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    // Display a dedicated unavailable screen in the browser.
+    if (kIsWeb) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Change App Icon'), centerTitle: true),
+        body: _buildWebUnavailable(theme),
+      );
+    }
+
+    // Original icon changer interface for the native app.
     return Scaffold(
       appBar: AppBar(title: const Text('Change App Icon'), centerTitle: true),
       body: ListView(
