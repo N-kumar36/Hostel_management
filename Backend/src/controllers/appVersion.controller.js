@@ -3,25 +3,25 @@ export const getAppVersion = async (req, res) => {
     return res.status(200).json({
       success: true,
 
-      latestVersion: "2.0.3",
-      latestBuild: 23,
+      latestVersion: "2.0.4",
+      latestBuild: 24,
 
-      minimumVersion: "2.0.3",
-      minimumBuild: 23,
+      minimumVersion: "2.0.4",
+      minimumBuild: 24,
 
       forceUpdate: true,
 
       releaseNotes:
-        "HostelMess 2.0.3 includes major improvements, new features(Student Qr , Custom Polls and many more), performance updates, and bug fixes.",
+        "HostelMess 2.0.4 includes major improvements, new features(Student Qr , Custom Polls and many more), performance updates, and bug fixes.",
 
       apkUrls: {
         "armeabi-v7a":
-          "https://github.com/N-kumar36/Hostel_management/releases/download/v2.0.3/app-armeabi-v7a-release.apk",
+          "https://github.com/N-kumar36/Hostel_management/releases/download/v2.0.4/app-armeabi-v7a-release.apk",
         "arm64-v8a":
-          "https://github.com/N-kumar36/Hostel_management/releases/download/v2.0.3/app-arm64-v8a-release.apk",
+          "https://github.com/N-kumar36/Hostel_management/releases/download/v2.0.4/app-arm64-v8a-release.apk",
 
         "x86_64":
-          "https://github.com/N-kumar36/Hostel_management/releases/download/v2.0.3/app-x86_64-release.apk",
+          "https://github.com/N-kumar36/Hostel_management/releases/download/v2.0.4/app-x86_64-release.apk",
       },
     });
   } catch (error) {
