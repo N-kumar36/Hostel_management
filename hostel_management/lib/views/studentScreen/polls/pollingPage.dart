@@ -18,6 +18,7 @@ class _PollingPageState extends State<PollingPage> {
 
   bool _isLoading = true;
   bool _isRefreshing = false;
+  bool _isFetching = false;
   String? _errorMessage;
 
   final Set<String> _votingPollIds = {};
@@ -47,20 +48,22 @@ class _PollingPageState extends State<PollingPage> {
   // ============================================================
 
   Future<void> _loadPolls({bool refresh = false}) async {
-    if (refresh) {
+    // Prevent overlapping requests from overwriting a newer response.
+    if (_isFetching) return;
+    _isFetching = true;
+
+    if (mounted) {
       setState(() {
-        _isRefreshing = true;
-        _errorMessage = null;
-      });
-    } else {
-      setState(() {
-        _isLoading = true;
+        _isRefreshing = refresh;
+        // Keep existing polls visible while refreshing. Only show the full
+        // loading screen when there is no data yet.
+        _isLoading = !refresh && _polls.isEmpty;
         _errorMessage = null;
       });
     }
 
     try {
-      final polls = await api.getPolls();
+      final List<dynamic> polls = await api.getPolls();
 
       if (!mounted) return;
 
@@ -68,6 +71,7 @@ class _PollingPageState extends State<PollingPage> {
         _polls = polls;
         _isLoading = false;
         _isRefreshing = false;
+        _errorMessage = null;
       });
     } catch (e) {
       if (!mounted) return;
@@ -75,8 +79,18 @@ class _PollingPageState extends State<PollingPage> {
       setState(() {
         _isLoading = false;
         _isRefreshing = false;
-        _errorMessage = "Unable to load polls.";
+        // Do not replace a previously loaded list with an error screen.
+        _errorMessage = _polls.isEmpty ? "Unable to load polls." : null;
       });
+
+      if (_polls.isNotEmpty) {
+        _showSnackBar(
+          "Couldn't refresh polls. Showing the last loaded data.",
+          const Color(0xFFB45309),
+        );
+      }
+    } finally {
+      _isFetching = false;
     }
   }
 
@@ -511,7 +525,9 @@ class _PollingPageState extends State<PollingPage> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        color: theme.brightness == Brightness.dark
+            ? const Color(0xFF202C44)
+            : const Color(0xFFE8EEFF),
         borderRadius: BorderRadius.circular(17),
         border: Border.all(
           color: winner
@@ -588,7 +604,9 @@ class _PollingPageState extends State<PollingPage> {
       width: double.infinity,
       padding: const EdgeInsets.all(17),
       decoration: BoxDecoration(
-        color: const Color(0xFF16A34A).withOpacity(0.08),
+        color: Theme.of(context).brightness == Brightness.dark
+            ? const Color(0xFF174A35)
+            : const Color(0xFFD7F5E4),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: const Color(0xFF16A34A).withOpacity(0.25)),
       ),
@@ -663,18 +681,17 @@ class _PollingPageState extends State<PollingPage> {
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        // Solid, high-contrast card surface rather than a nearly transparent
+        // card that blends into the page background.
+        color: theme.brightness == Brightness.dark
+            ? const Color(0xFF202C44)
+            : const Color(0xFFE8EEFF),
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: theme.dividerColor.withOpacity(0.7)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(
-              theme.brightness == Brightness.dark ? 0.14 : 0.04,
-            ),
-            blurRadius: 18,
-            offset: const Offset(0, 7),
-          ),
-        ],
+        border: Border.all(
+          color: theme.brightness == Brightness.dark
+              ? const Color(0xFF354665)
+              : const Color(0xFFC7D5FF),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -858,14 +875,14 @@ class _PollingPageState extends State<PollingPage> {
                   vertical: 14,
                 ),
                 decoration: BoxDecoration(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.primary.withOpacity(0.05),
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? const Color(0xFF334766)
+                      : const Color(0xFFD5E1FF),
                   borderRadius: BorderRadius.circular(15),
                   border: Border.all(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.primary.withOpacity(0.18),
+                    color: Theme.of(context).brightness == Brightness.dark
+                        ? const Color(0xFF52698D)
+                        : const Color(0xFFB5C8FF),
                   ),
                 ),
                 child: Row(
@@ -954,7 +971,9 @@ class _PollingPageState extends State<PollingPage> {
       width: double.infinity,
       padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
-        color: const Color(0xFFD97706).withOpacity(0.08),
+        color: Theme.of(context).brightness == Brightness.dark
+            ? const Color(0xFF553713)
+            : const Color(0xFFFFE9C2),
         borderRadius: BorderRadius.circular(15),
       ),
       child: Row(
@@ -986,7 +1005,9 @@ class _PollingPageState extends State<PollingPage> {
           width: double.infinity,
           padding: const EdgeInsets.all(15),
           decoration: BoxDecoration(
-            color: theme.colorScheme.onSurface.withOpacity(0.04),
+            color: theme.brightness == Brightness.dark
+                ? const Color(0xFF303744)
+                : const Color(0xFFE5E7EB),
             borderRadius: BorderRadius.circular(15),
           ),
           child: Row(
@@ -1123,17 +1144,24 @@ class _PollingPageState extends State<PollingPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    final List<dynamic> activePolls = _polls.where((poll) {
-      return _getStatus(Map<String, dynamic>.from(poll)) == "active";
-    }).toList();
+    // Ignore malformed entries instead of letting one unexpected API item
+    // crash the whole page and make the poll list appear blank.
+    final List<Map<String, dynamic>> validPolls = _polls
+        .whereType<Map>()
+        .map((poll) => Map<String, dynamic>.from(poll))
+        .toList();
 
-    final List<dynamic> upcomingPolls = _polls.where((poll) {
-      return _getStatus(Map<String, dynamic>.from(poll)) == "scheduled";
-    }).toList();
+    final List<Map<String, dynamic>> activePolls = validPolls
+        .where((poll) => _getStatus(poll) == "active")
+        .toList();
 
-    final List<dynamic> closedPolls = _polls.where((poll) {
-      return _getStatus(Map<String, dynamic>.from(poll)) == "closed";
-    }).toList();
+    final List<Map<String, dynamic>> upcomingPolls = validPolls
+        .where((poll) => _getStatus(poll) == "scheduled")
+        .toList();
+
+    final List<Map<String, dynamic>> closedPolls = validPolls
+        .where((poll) => _getStatus(poll) == "closed")
+        .toList();
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -1149,7 +1177,7 @@ class _PollingPageState extends State<PollingPage> {
         actions: [
           IconButton(
             tooltip: "Refresh",
-            onPressed: _isRefreshing ? null : () => _loadPolls(refresh: true),
+            onPressed: _isFetching ? null : () => _loadPolls(refresh: true),
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
@@ -1244,10 +1272,7 @@ class _PollingPageState extends State<PollingPage> {
                             activePolls.length,
                           ),
                           const SizedBox(height: 12),
-                          ...activePolls.map(
-                            (poll) =>
-                                _buildPollCard(Map<String, dynamic>.from(poll)),
-                          ),
+                          ...activePolls.map((poll) => _buildPollCard(poll)),
                         ],
 
                         if (upcomingPolls.isNotEmpty) ...[
@@ -1259,10 +1284,7 @@ class _PollingPageState extends State<PollingPage> {
                             upcomingPolls.length,
                           ),
                           const SizedBox(height: 12),
-                          ...upcomingPolls.map(
-                            (poll) =>
-                                _buildPollCard(Map<String, dynamic>.from(poll)),
-                          ),
+                          ...upcomingPolls.map((poll) => _buildPollCard(poll)),
                         ],
 
                         if (closedPolls.isNotEmpty) ...[
@@ -1274,10 +1296,7 @@ class _PollingPageState extends State<PollingPage> {
                             closedPolls.length,
                           ),
                           const SizedBox(height: 12),
-                          ...closedPolls.map(
-                            (poll) =>
-                                _buildPollCard(Map<String, dynamic>.from(poll)),
-                          ),
+                          ...closedPolls.map((poll) => _buildPollCard(poll)),
                         ],
                       ],
                     ),

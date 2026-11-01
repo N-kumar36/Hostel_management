@@ -17,6 +17,7 @@ class _AdminPollManagementPageState extends State<AdminPollManagementPage> {
 
   bool _isLoading = true;
   bool _isRefreshing = false;
+  bool _isFetching = false;
 
   @override
   void initState() {
@@ -29,23 +30,36 @@ class _AdminPollManagementPageState extends State<AdminPollManagementPage> {
   // ============================================================
 
   Future<void> _loadPolls({bool refresh = false}) async {
-    if (refresh) {
+    if (_isFetching) return;
+
+    _isFetching = true;
+
+    if (mounted) {
       setState(() {
-        _isRefreshing = true;
-      });
-    } else {
-      setState(() {
-        _isLoading = true;
+        if (refresh || _polls.isNotEmpty) {
+          _isRefreshing = true;
+        } else {
+          _isLoading = true;
+        }
       });
     }
 
     try {
-      final polls = await api.getPolls();
+      final dynamic response = await api.getPolls();
 
       if (!mounted) return;
 
+      // Accept only valid map entries. A malformed entry should not blank
+      // the entire Poll Management page.
+      final List<dynamic> fetchedPolls = response is List
+          ? response
+                .whereType<Map>()
+                .map((poll) => Map<String, dynamic>.from(poll))
+                .toList()
+          : <dynamic>[];
+
       setState(() {
-        _polls = polls;
+        _polls = fetchedPolls;
         _isLoading = false;
         _isRefreshing = false;
       });
@@ -59,8 +73,49 @@ class _AdminPollManagementPageState extends State<AdminPollManagementPage> {
         _isRefreshing = false;
       });
 
-      _showSnackBar("Unable to load polls.", Colors.red);
+      _showSnackBar(
+        _polls.isEmpty
+            ? "Unable to load polls. Please try again."
+            : "Refresh failed. Showing previously loaded polls.",
+        Colors.red,
+      );
+    } finally {
+      _isFetching = false;
     }
+  }
+
+  // Safely read a vote count from the fields commonly returned by APIs.
+  // The backend should provide totalVotes for an authoritative count.
+  int _getTotalVotes(Map<String, dynamic> poll) {
+    final dynamic rawTotal =
+        poll['totalVotes'] ??
+        poll['votesCount'] ??
+        poll['voteCount'] ??
+        poll['totalVoteCount'];
+
+    if (rawTotal != null) {
+      if (rawTotal is num) return rawTotal.toInt().clamp(0, 1 << 31);
+      final parsed = int.tryParse(rawTotal.toString());
+      if (parsed != null) return parsed < 0 ? 0 : parsed;
+    }
+
+    // Fallback only if the API includes vote counts on individual options.
+    final dynamic rawOptions = poll['options'];
+    if (rawOptions is List) {
+      return rawOptions.fold<int>(0, (sum, rawOption) {
+        if (rawOption is! Map) return sum;
+        final dynamic rawVotes =
+            rawOption['votes'] ??
+            rawOption['voteCount'] ??
+            rawOption['votesCount'];
+        final int count = rawVotes is num
+            ? rawVotes.toInt()
+            : int.tryParse(rawVotes?.toString() ?? '') ?? 0;
+        return sum + (count > 0 ? count : 0);
+      });
+    }
+
+    return 0;
   }
 
   // ============================================================
@@ -820,7 +875,7 @@ class _AdminPollManagementPageState extends State<AdminPollManagementPage> {
               const SizedBox(width: 8),
               _miniStat(
                 Icons.people_alt_outlined,
-                "${poll['totalVotes'] ?? 0}",
+                _getTotalVotes(poll).toString(),
                 "Votes",
               ),
             ],
@@ -996,17 +1051,22 @@ class _AdminPollManagementPageState extends State<AdminPollManagementPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    final int activeCount = _polls.where((p) {
-      return _getStatus(Map<String, dynamic>.from(p)) == "active";
-    }).length;
+    final List<Map<String, dynamic>> validPolls = _polls
+        .whereType<Map>()
+        .map((p) => Map<String, dynamic>.from(p))
+        .toList();
 
-    final int scheduledCount = _polls.where((p) {
-      return _getStatus(Map<String, dynamic>.from(p)) == "scheduled";
-    }).length;
+    final int activeCount = validPolls
+        .where((p) => _getStatus(p) == "active")
+        .length;
 
-    final int closedCount = _polls.where((p) {
-      return _getStatus(Map<String, dynamic>.from(p)) == "closed";
-    }).length;
+    final int scheduledCount = validPolls
+        .where((p) => _getStatus(p) == "scheduled")
+        .length;
+
+    final int closedCount = validPolls
+        .where((p) => _getStatus(p) == "closed")
+        .length;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -1021,8 +1081,14 @@ class _AdminPollManagementPageState extends State<AdminPollManagementPage> {
         ),
         actions: [
           IconButton(
-            onPressed: _isRefreshing ? null : () => _loadPolls(refresh: true),
-            icon: const Icon(Icons.refresh_rounded),
+            onPressed: _isFetching ? null : () => _loadPolls(refresh: true),
+            icon: _isRefreshing
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh_rounded),
           ),
         ],
       ),
@@ -1045,12 +1111,10 @@ class _AdminPollManagementPageState extends State<AdminPollManagementPage> {
 
                   const SizedBox(height: 22),
 
-                  if (_polls.isEmpty)
+                  if (validPolls.isEmpty)
                     _buildEmptyState()
                   else
-                    ..._polls.map(
-                      (poll) => _buildPollCard(Map<String, dynamic>.from(poll)),
-                    ),
+                    ...validPolls.map(_buildPollCard),
                 ],
               ),
             ),

@@ -55,7 +55,7 @@ export const getStudentPolls = async (req, res) => {
 
     const studentId = getUserId(req);
 
-    let votedPollIds = new Set();
+    const votedPollIds = new Set();
 
     if (studentId && polls.length > 0) {
       const pollIds = polls.map((poll) => poll._id);
@@ -69,19 +69,49 @@ export const getStudentPolls = async (req, res) => {
         .select("pollId optionId votedAt")
         .lean();
 
-      votedPollIds = new Set(
-        votes.map((vote) => vote.pollId.toString())
-      );
+      votes.forEach((vote) => {
+        votedPollIds.add(vote.pollId.toString());
+      });
     }
+
+    // Count all votes belonging to each poll in one aggregation.
+    const voteCounts =
+      polls.length > 0
+        ? await PollVote.aggregate([
+            {
+              $match: {
+                pollId: {
+                  $in: polls.map((poll) => poll._id),
+                },
+              },
+            },
+            {
+              $group: {
+                _id: "$pollId",
+                totalVotes: {
+                  $sum: 1,
+                },
+              },
+            },
+          ])
+        : [];
+
+    // Map poll ID to total vote count.
+    const voteCountMap = new Map(
+      voteCounts.map((item) => [
+        item._id.toString(),
+        item.totalVotes,
+      ])
+    );
 
     const data = polls.map((poll) => {
       const normalized = updatePollStatus(poll);
+      const pollId = poll._id.toString();
 
       return {
         ...normalized,
-        hasVoted: votedPollIds.has(
-          poll._id.toString()
-        ),
+        hasVoted: votedPollIds.has(pollId),
+        totalVotes: voteCountMap.get(pollId) ?? 0,
       };
     });
 
