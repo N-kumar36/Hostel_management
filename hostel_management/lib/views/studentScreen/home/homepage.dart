@@ -561,8 +561,8 @@ class _HomepageState extends State<Homepage> {
                   },
                 ),
                 _buildQuickActionCard(
-                  icon: Icons.directions_run_rounded,
-                  title: "Maths Runner",
+                  icon: Icons.sports_esports_rounded,
+                  title: "Tic Tac Toe",
                   subtitle: "Play offline Anytime",
                   color: const Color(0xFF0D9488),
                   onTap: () {
