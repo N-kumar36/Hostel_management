@@ -14,69 +14,240 @@ export const createMeal = async (req, res) => {
     const { date, morning, night } = req.body;
     const hostelId = req.user.hostelId;
 
-    console.log("create meal", date, morning, night)
+    console.log("create meal", date, morning, night);
 
     if (!date || !morning || !night) {
-      return res.status(400).json({ success: false, message: "Missing required fields" });
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields"
+      });
     }
 
     // Helper to safely parse strings into Dates without unexpected timezone changes
     const parseLockTime = (targetDateStr, isoTimeStr) => {
-      // If the incoming string is a full ISO timestamp, extract just the time component HH:MM
-      const timePart = isoTimeStr.includes("T") ? isoTimeStr.split("T")[1].substring(0, 5) : isoTimeStr.substring(0, 5);
+      const timePart = isoTimeStr.includes("T")
+        ? isoTimeStr.split("T")[1].substring(0, 5)
+        : isoTimeStr.substring(0, 5);
+
       const [day, month, year] = targetDateStr.split("/");
-      // Build a clean local date constructor string
-      return new Date(`${year}-${month}-${day}T${timePart}:00.000Z`);
+
+      return new Date(
+        `${year}-${month}-${day}T${timePart}:00.000Z`
+      );
     };
 
-    const existingMeal = await Meal.findOne({ date, hostelId });
+    /*
+     * Normalize extra-meal information.
+     *
+     * Normal meal:
+     *   isExtraMeal = false
+     *   extraMealNumber = null
+     *   occasion = null
+     *
+     * Extra meal:
+     *   isExtraMeal = true
+     *   mealsNum = "0"
+     *   extraMealNumber = "61", "62", etc.
+     */
+    const prepareSlot = (slot, defaultLockTime) => {
+      const isExtraMeal = slot.isExtraMeal === true;
+
+      return {
+        manu: slot.manu,
+
+        // Extra meals NEVER receive a normal cycle number.
+        mealsNum: "0",
+
+        isExtraMeal,
+
+        extraMealNumber: isExtraMeal
+          ? (slot.extraMealNumber != null
+              ? String(slot.extraMealNumber)
+              : null)
+          : null,
+
+        occasion: isExtraMeal
+          ? (slot.occasion?.trim() || null)
+          : null,
+
+        lockTime: parseLockTime(
+          date,
+          slot.lockTime || defaultLockTime
+        ),
+
+        isLocked: false,
+
+        isCancelled: slot.isCancelled === true,
+
+        studentVotes: [],
+        guestRequests: []
+      };
+    };
+
+    const existingMeal = await Meal.findOne({
+      date,
+      hostelId
+    });
+
+    // ============================================================
+    // UPDATE EXISTING DAILY MEAL
+    // ============================================================
 
     if (existingMeal) {
+      /*
+       * MORNING
+       */
       existingMeal.morning.manu = morning.manu;
-      existingMeal.morning.lockTime = parseLockTime(date, morning.lockTime);
 
-      if (morning.isCancelled !== undefined) existingMeal.morning.isCancelled = morning.isCancelled;
+      existingMeal.morning.lockTime = parseLockTime(
+        date,
+        morning.lockTime
+      );
 
+      if (morning.isCancelled !== undefined) {
+        existingMeal.morning.isCancelled = morning.isCancelled;
+      }
+
+      if (morning.isExtraMeal !== undefined) {
+        existingMeal.morning.isExtraMeal =
+          morning.isExtraMeal === true;
+
+        if (existingMeal.morning.isExtraMeal) {
+          existingMeal.morning.mealsNum = "0";
+
+          existingMeal.morning.extraMealNumber =
+            morning.extraMealNumber != null
+              ? String(morning.extraMealNumber)
+              : null;
+
+          existingMeal.morning.occasion =
+            morning.occasion?.trim() || null;
+        } else {
+          // Converting extra → normal
+          existingMeal.morning.mealsNum = "0";
+          existingMeal.morning.extraMealNumber = null;
+          existingMeal.morning.occasion = null;
+        }
+      } else if (existingMeal.morning.isExtraMeal) {
+        // Existing extra meal remains isolated from cycle.
+        existingMeal.morning.mealsNum = "0";
+
+        if (morning.extraMealNumber !== undefined) {
+          existingMeal.morning.extraMealNumber =
+            morning.extraMealNumber != null
+              ? String(morning.extraMealNumber)
+              : null;
+        }
+
+        if (morning.occasion !== undefined) {
+          existingMeal.morning.occasion =
+            morning.occasion?.trim() || null;
+        }
+      }
+
+      /*
+       * NIGHT
+       */
       existingMeal.night.manu = night.manu;
-      existingMeal.night.lockTime = parseLockTime(date, night.lockTime);
-      if (night.isCancelled !== undefined) existingMeal.night.isCancelled = night.isCancelled;
+
+      existingMeal.night.lockTime = parseLockTime(
+        date,
+        night.lockTime
+      );
+
+      if (night.isCancelled !== undefined) {
+        existingMeal.night.isCancelled = night.isCancelled;
+      }
+
+      if (night.isExtraMeal !== undefined) {
+        existingMeal.night.isExtraMeal =
+          night.isExtraMeal === true;
+
+        if (existingMeal.night.isExtraMeal) {
+          existingMeal.night.mealsNum = "0";
+
+          existingMeal.night.extraMealNumber =
+            night.extraMealNumber != null
+              ? String(night.extraMealNumber)
+              : null;
+
+          existingMeal.night.occasion =
+            night.occasion?.trim() || null;
+        } else {
+          // Converting extra → normal
+          existingMeal.night.mealsNum = "0";
+          existingMeal.night.extraMealNumber = null;
+          existingMeal.night.occasion = null;
+        }
+      } else if (existingMeal.night.isExtraMeal) {
+        existingMeal.night.mealsNum = "0";
+
+        if (night.extraMealNumber !== undefined) {
+          existingMeal.night.extraMealNumber =
+            night.extraMealNumber != null
+              ? String(night.extraMealNumber)
+              : null;
+        }
+
+        if (night.occasion !== undefined) {
+          existingMeal.night.occasion =
+            night.occasion?.trim() || null;
+        }
+      }
 
       await existingMeal.save();
+
+      // Recalculate ONLY normal 1–60 meals.
       await recalculateMealNumbers(hostelId);
 
-      const updatedMeal = await Meal.findOne({ date, hostelId });
-      return res.status(200).json({ success: true, message: "Meal plan updated successfully.", meal: updatedMeal });
+      const updatedMeal = await Meal.findOne({
+        date,
+        hostelId
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: "Meal plan updated successfully.",
+        meal: updatedMeal
+      });
     }
+
+    // ============================================================
+    // CREATE NEW DAILY MEAL
+    // ============================================================
 
     const meal = await Meal.create({
       hostelId,
       date,
-      morning: {
-        manu: morning.manu,
-        mealsNum: "0",
-        lockTime: parseLockTime(date, morning.lockTime),
-        isLocked: false,
-        isCancelled: false,
-        studentVotes: [],
-        guestRequests: []
-      },
-      night: {
-        manu: night.manu,
-        mealsNum: "0",
-        lockTime: parseLockTime(date, night.lockTime),
-        isLocked: false,
-        isCancelled: false,
-        studentVotes: [],
-        guestRequests: []
-      },
+
+      morning: prepareSlot(
+        morning,
+        morning.lockTime
+      ),
+
+      night: prepareSlot(
+        night,
+        night.lockTime
+      )
     });
 
+    // Assign normal 1–60 numbers.
+    // Extra meals are ignored by the helper.
     await recalculateMealNumbers(hostelId);
+
     const finalSavedMeal = await Meal.findById(meal._id);
 
-    return res.status(201).json({ success: true, message: "Meal plan created successfully.", meal: finalSavedMeal });
+    return res.status(201).json({
+      success: true,
+      message: "Meal plan created successfully.",
+      meal: finalSavedMeal
+    });
+
   } catch (err) {
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };
 
@@ -159,102 +330,278 @@ export const autoGenerateMeals = async (req, res) => {
  * @desc    Inline meal updating controller
  * @route   PUT /api/meals/update/:mealId
  */
-
 export const updateMeal = async (req, res) => {
   try {
     const { mealId } = req.params;
-    
-    // 1. Fetch the target meal record first
+
+    // 1. Fetch target meal
     const existingMeal = await Meal.findById(mealId);
+
     if (!existingMeal) {
-      return res.status(404).json({ success: false, message: "Meal configuration record not found." });
+      return res.status(404).json({
+        success: false,
+        message: "Meal configuration record not found."
+      });
     }
 
     const updateData = {};
     const clearMorningArrays = {};
     const clearNightArrays = {};
 
-    // 🛡️ MORNING SLOT OPERATIONS
+    // ============================================================
+    // MORNING SLOT
+    // ============================================================
+
     if (req.body.morning) {
-      // Rule 1: If menu item changes, wipe the arrays so students can revote
-      if (req.body.morning.manu && req.body.morning.manu !== existingMeal.morning.manu) {
-        updateData["morning.manu"] = req.body.morning.manu;
-        
-        // Clear student votes and guest requests out completely
+      const incomingMorning = req.body.morning;
+
+      // ----------------------------------------------------------
+      // Menu change
+      // ----------------------------------------------------------
+
+      if (
+        incomingMorning.manu &&
+        incomingMorning.manu !== existingMeal.morning.manu
+      ) {
+        updateData["morning.manu"] = incomingMorning.manu;
+
         clearMorningArrays["morning.studentVotes"] = [];
         clearMorningArrays["morning.guestRequests"] = [];
       }
-      
-      // Rule 2: If canceling the meal, update status but KEEP the votes intact
-      if (req.body.morning.isCancelled !== undefined) {
-        updateData["morning.isCancelled"] = req.body.morning.isCancelled;
+
+      // ----------------------------------------------------------
+      // Cancellation
+      // ----------------------------------------------------------
+
+      if (incomingMorning.isCancelled !== undefined) {
+        updateData["morning.isCancelled"] =
+          incomingMorning.isCancelled;
       }
-      
-      if (req.body.morning.lockTime) {
-        const timePart = req.body.morning.lockTime.includes("T") 
-          ? req.body.morning.lockTime.split("T")[1].substring(0, 5) 
-          : req.body.morning.lockTime.substring(0, 5);
-        const [day, month, year] = existingMeal.date.split("/");
-        updateData["morning.lockTime"] = new Date(`${year}-${month}-${day}T${timePart}:00.000Z`);
+
+      // ----------------------------------------------------------
+      // Lock time
+      // ----------------------------------------------------------
+
+      if (incomingMorning.lockTime) {
+        const timePart =
+          incomingMorning.lockTime.includes("T")
+            ? incomingMorning.lockTime
+                .split("T")[1]
+                .substring(0, 5)
+            : incomingMorning.lockTime.substring(0, 5);
+
+        const [day, month, year] =
+          existingMeal.date.split("/");
+
+        updateData["morning.lockTime"] =
+          new Date(
+            `${year}-${month}-${day}T${timePart}:00.000Z`
+          );
+      }
+
+      // ----------------------------------------------------------
+      // EXTRA MEAL
+      // ----------------------------------------------------------
+
+      if (incomingMorning.isExtraMeal !== undefined) {
+        const isExtra =
+          incomingMorning.isExtraMeal === true;
+
+        updateData["morning.isExtraMeal"] = isExtra;
+
+        if (isExtra) {
+          // Extra meals never participate in 1–60 cycle.
+          updateData["morning.mealsNum"] = "0";
+
+          if (
+            incomingMorning.extraMealNumber !== undefined
+          ) {
+            updateData["morning.extraMealNumber"] =
+              incomingMorning.extraMealNumber != null
+                ? String(incomingMorning.extraMealNumber)
+                : null;
+          }
+
+          if (incomingMorning.occasion !== undefined) {
+            updateData["morning.occasion"] =
+              incomingMorning.occasion?.trim() || null;
+          }
+        } else {
+          // Convert extra → normal.
+          // recalculateMealNumbers() will assign the correct 1–60 number.
+          updateData["morning.mealsNum"] = "0";
+          updateData["morning.extraMealNumber"] = null;
+          updateData["morning.occasion"] = null;
+        }
+      } else if (existingMeal.morning.isExtraMeal) {
+        // Existing extra meal remains isolated.
+        updateData["morning.mealsNum"] = "0";
+
+        if (
+          incomingMorning.extraMealNumber !== undefined
+        ) {
+          updateData["morning.extraMealNumber"] =
+            incomingMorning.extraMealNumber != null
+              ? String(incomingMorning.extraMealNumber)
+              : null;
+        }
+
+        if (incomingMorning.occasion !== undefined) {
+          updateData["morning.occasion"] =
+            incomingMorning.occasion?.trim() || null;
+        }
       }
     }
 
-    // 🛡️ NIGHT SLOT OPERATIONS
+    // ============================================================
+    // NIGHT SLOT
+    // ============================================================
+
     if (req.body.night) {
-      // Rule 1: If menu item changes, wipe the arrays so students can revote
-      if (req.body.night.manu && req.body.night.manu !== existingMeal.night.manu) {
-        updateData["night.manu"] = req.body.night.manu;
-        
-        // Clear student votes and guest requests out completely
+      const incomingNight = req.body.night;
+
+      // ----------------------------------------------------------
+      // Menu change
+      // ----------------------------------------------------------
+
+      if (
+        incomingNight.manu &&
+        incomingNight.manu !== existingMeal.night.manu
+      ) {
+        updateData["night.manu"] = incomingNight.manu;
+
         clearNightArrays["night.studentVotes"] = [];
         clearNightArrays["night.guestRequests"] = [];
       }
-      
-      // Rule 2: If canceling the meal, update status but KEEP the votes intact
-      if (req.body.night.isCancelled !== undefined) {
-        updateData["night.isCancelled"] = req.body.night.isCancelled;
+
+      // ----------------------------------------------------------
+      // Cancellation
+      // ----------------------------------------------------------
+
+      if (incomingNight.isCancelled !== undefined) {
+        updateData["night.isCancelled"] =
+          incomingNight.isCancelled;
       }
-      
-      if (req.body.night.lockTime) {
-        const timePart = req.body.night.lockTime.includes("T") 
-          ? req.body.night.lockTime.split("T")[1].substring(0, 5) 
-          : req.body.night.lockTime.substring(0, 5);
-        const [day, month, year] = existingMeal.date.split("/");
-        updateData["night.lockTime"] = new Date(`${year}-${month}-${day}T${timePart}:00.000Z`);
+
+      // ----------------------------------------------------------
+      // Lock time
+      // ----------------------------------------------------------
+
+      if (incomingNight.lockTime) {
+        const timePart =
+          incomingNight.lockTime.includes("T")
+            ? incomingNight.lockTime
+                .split("T")[1]
+                .substring(0, 5)
+            : incomingNight.lockTime.substring(0, 5);
+
+        const [day, month, year] =
+          existingMeal.date.split("/");
+
+        updateData["night.lockTime"] =
+          new Date(
+            `${year}-${month}-${day}T${timePart}:00.000Z`
+          );
+      }
+
+      // ----------------------------------------------------------
+      // EXTRA MEAL
+      // ----------------------------------------------------------
+
+      if (incomingNight.isExtraMeal !== undefined) {
+        const isExtra =
+          incomingNight.isExtraMeal === true;
+
+        updateData["night.isExtraMeal"] = isExtra;
+
+        if (isExtra) {
+          // Extra meals never participate in 1–60 cycle.
+          updateData["night.mealsNum"] = "0";
+
+          if (
+            incomingNight.extraMealNumber !== undefined
+          ) {
+            updateData["night.extraMealNumber"] =
+              incomingNight.extraMealNumber != null
+                ? String(incomingNight.extraMealNumber)
+                : null;
+          }
+
+          if (incomingNight.occasion !== undefined) {
+            updateData["night.occasion"] =
+              incomingNight.occasion?.trim() || null;
+          }
+        } else {
+          // Convert extra → normal.
+          updateData["night.mealsNum"] = "0";
+          updateData["night.extraMealNumber"] = null;
+          updateData["night.occasion"] = null;
+        }
+      } else if (existingMeal.night.isExtraMeal) {
+        // Existing extra meal remains isolated.
+        updateData["night.mealsNum"] = "0";
+
+        if (
+          incomingNight.extraMealNumber !== undefined
+        ) {
+          updateData["night.extraMealNumber"] =
+            incomingNight.extraMealNumber != null
+              ? String(incomingNight.extraMealNumber)
+              : null;
+        }
+
+        if (incomingNight.occasion !== undefined) {
+          updateData["night.occasion"] =
+            incomingNight.occasion?.trim() || null;
+        }
       }
     }
 
-    // 2. Build the final update payload combining atomic sets and clears
-    const finalUpdatePayload = { $set: updateData };
-    
-    // Add arrays to be wiped out if menu changed
-    if (Object.keys(clearMorningArrays).length > 0 || Object.keys(clearNightArrays).length > 0) {
-      finalUpdatePayload.$set = { 
-        ...updateData, 
-        ...clearMorningArrays, 
-        ...clearNightArrays 
-      };
-    }
+    // ============================================================
+    // BUILD UPDATE PAYLOAD
+    // ============================================================
 
-    // 3. Commit changes to MongoDB
+    const finalUpdatePayload = {
+      $set: {
+        ...updateData,
+        ...clearMorningArrays,
+        ...clearNightArrays
+      }
+    };
+
+    // ============================================================
+    // SAVE
+    // ============================================================
+
     const updatedMeal = await Meal.findByIdAndUpdate(
       mealId,
       finalUpdatePayload,
-      { new: true, runValidators: true }
+      {
+        new: true,
+        runValidators: true
+      }
     );
 
-    await recalculateMealNumbers(req.user.hostelId);
+    // Recalculate normal cycle only.
+    await recalculateMealNumbers(
+      req.user.hostelId
+    );
 
-    return res.status(200).json({ 
-      success: true, 
-      message: "Meal configuration synchronized successfully.", 
-      meal: updatedMeal 
+    // Fetch again so response contains recalculated numbers.
+    const finalMeal = await Meal.findById(mealId);
+
+    return res.status(200).json({
+      success: true,
+      message: "Meal configuration synchronized successfully.",
+      meal: finalMeal || updatedMeal
     });
 
   } catch (error) {
-    return res.status(500).json({ 
-      success: false, 
-      message: "Internal server side update process error: " + error.message 
+    return res.status(500).json({
+      success: false,
+      message:
+        "Internal server side update process error: " +
+        error.message
     });
   }
 };
@@ -482,97 +829,353 @@ export const getMealStatus = async (req, res) => {
 
 export const getAllMeals = async (req, res) => {
   try {
-    const userHostelId = req.user.hostelId;
-    if (!userHostelId) {
-      return res.status(403).json({ success: false, message: "Access denied. No hostel assigned." });
-    }
+    const { startDate, endDate } = req.query;
 
-    const { startDateStr, endDateStr } = req.query;
-    console.log("Query Parameters Received: ", startDateStr, endDateStr);
+    const hostelId = req.user.hostelId;
 
-    let targetMeals = [];
-
-    // ➔ OPTION A: If at least a Start Date is available, fetch all meals from that date onwards
-    if (startDateStr && startDateStr !== 'null') {
-      const [startDay, startMonth, startYear] = startDateStr.split("/");
-      const trueStartDate = new Date(`${startYear}-${startMonth}-${startDay}T00:00:00.000Z`);
-
-      // If an explicit end date is also present, capture the bound; otherwise fallback to future infinity
-      let trueEndDate = null;
-      if (endDateStr && endDateStr !== 'null') {
-        const [endDay, endMonth, endYear] = endDateStr.split("/");
-        trueEndDate = new Date(`${endYear}-${endMonth}-${endDay}T23:59:59.999Z`);
-      }
-
-      const mealsInSystem = await Meal.find({ hostelId: userHostelId }).lean();
-
-      targetMeals = mealsInSystem.filter(meal => {
-        const [d, m, y] = meal.date.split("/");
-        const currentMealDate = new Date(`${y}-${m}-${d}T00:00:00.000Z`);
-        
-        if (trueEndDate) {
-          return currentMealDate >= trueStartDate && currentMealDate <= trueEndDate;
-        }
-        // If no end date, return everything from start date forward
-        return currentMealDate >= trueStartDate;
-      });
-
-    } else {
-      // ➔ OPTION B: AUTOMATIC CURRENT CYCLE DETECTOR (Fallback to Active 1-60 Meal Block)
-      const now = new Date();
-      const todayStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
-
-      let referenceMeal = await Meal.findOne({ hostelId: userHostelId, date: todayStr }).lean();
-
-      // If today has no document, find the most recently created historical document entry
-      if (!referenceMeal) {
-        referenceMeal = await Meal.findOne({ hostelId: userHostelId })
-          .sort({ createdAt: -1 })
-          .lean();
-      }
-
-      if (referenceMeal) {
-        const currentNum = parseInt(referenceMeal.morning?.mealsNum || referenceMeal.night?.mealsNum || 1, 10);
-
-        const cycleIndexOffset = (currentNum - 1) % 60; 
-        const cycleStartMealNum = currentNum - cycleIndexOffset; 
-        const cycleEndMealNum = cycleStartMealNum + 59; 
-
-        const mealsInSystem = await Meal.find({ hostelId: userHostelId }).lean();
-
-        targetMeals = mealsInSystem.filter(meal => {
-          const mNumMorning = parseInt(meal.morning?.mealsNum || 0, 10);
-          const mNumNight = parseInt(meal.night?.mealsNum || 0, 10);
-          
-          return (mNumMorning >= cycleStartMealNum && mNumMorning <= cycleEndMealNum) ||
-                 (mNumNight >= cycleStartMealNum && mNumNight <= cycleEndMealNum);
+    // ============================================================
+    // 1. EXPLICIT DATE RANGE
+    // ============================================================
+    if (startDate || endDate) {
+      if (!startDate || !endDate) {
+        return res.status(400).json({
+          success: false,
+          message: "Both startDate and endDate are required.",
         });
       }
-      
-      // Extreme Fallback: If filtered list is still empty, output the latest 30 records
-      if (targetMeals.length === 0) {
-        targetMeals = await Meal.find({ hostelId: userHostelId })
-          .sort({ createdAt: -1 })
-          .limit(30)
-          .lean();
+
+      const [startDay, startMonth, startYear] = startDate
+        .split("/")
+        .map(Number);
+
+      const [endDay, endMonth, endYear] = endDate
+        .split("/")
+        .map(Number);
+
+      const startDateObj = new Date(
+        Date.UTC(startYear, startMonth - 1, startDay)
+      );
+
+      const endDateObj = new Date(
+        Date.UTC(endYear, endMonth - 1, endDay)
+      );
+
+      if (
+        Number.isNaN(startDateObj.getTime()) ||
+        Number.isNaN(endDateObj.getTime())
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid date format. Use DD/MM/YYYY.",
+        });
+      }
+
+      if (startDateObj > endDateObj) {
+        return res.status(400).json({
+          success: false,
+          message: "startDate cannot be after endDate.",
+        });
+      }
+
+      const allMeals = await Meal.find({ hostelId });
+
+      const filteredMeals = allMeals.filter((meal) => {
+        const [day, month, year] = meal.date.split("/").map(Number);
+
+        const mealDate = new Date(
+          Date.UTC(year, month - 1, day)
+        );
+
+        return (
+          mealDate >= startDateObj &&
+          mealDate <= endDateObj
+        );
+      });
+
+      filteredMeals.sort((a, b) => {
+        const [dayA, monthA, yearA] = a.date.split("/").map(Number);
+        const [dayB, monthB, yearB] = b.date.split("/").map(Number);
+
+        const dateA = Date.UTC(yearA, monthA - 1, dayA);
+        const dateB = Date.UTC(yearB, monthB - 1, dayB);
+
+        if (dateA !== dateB) {
+          return dateA - dateB;
+        }
+
+        return (
+          new Date(a.createdAt || 0).getTime() -
+          new Date(b.createdAt || 0).getTime()
+        );
+      });
+
+      return res.status(200).json({
+        success: true,
+        count: filteredMeals.length,
+        meals: filteredMeals,
+      });
+    }
+
+    // ============================================================
+    // 2. AUTOMATIC CURRENT 60-MEAL CYCLE
+    // ============================================================
+
+    const allMeals = await Meal.find({ hostelId });
+
+    if (!allMeals.length) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        meals: [],
+      });
+    }
+
+    // ------------------------------------------------------------
+    // Convert DD/MM/YYYY into a comparable UTC timestamp
+    // ------------------------------------------------------------
+    const getMealDate = (meal) => {
+      const [day, month, year] = meal.date.split("/").map(Number);
+
+      return Date.UTC(
+        year,
+        month - 1,
+        day
+      );
+    };
+
+    // ------------------------------------------------------------
+    // Sort daily documents chronologically
+    // ------------------------------------------------------------
+    allMeals.sort((a, b) => {
+      const dateA = getMealDate(a);
+      const dateB = getMealDate(b);
+
+      if (dateA !== dateB) {
+        return dateA - dateB;
+      }
+
+      return (
+        new Date(a.createdAt || 0).getTime() -
+        new Date(b.createdAt || 0).getTime()
+      );
+    });
+
+    // ------------------------------------------------------------
+    // Build ONLY normal meal slots.
+    //
+    // Extra meals:
+    //   isExtraMeal === true
+    //
+    // are deliberately excluded from the 1-60 cycle.
+    //
+    // Cancelled meals:
+    //   isCancelled === true
+    //
+    // are also excluded from the cycle.
+    // ------------------------------------------------------------
+    const normalMealSlots = [];
+
+    for (const meal of allMeals) {
+      const mealDate = getMealDate(meal);
+
+      // Morning
+      if (
+        meal.morning &&
+        meal.morning.isExtraMeal !== true &&
+        meal.morning.isCancelled !== true
+      ) {
+        const mealsNum = Number(meal.morning.mealsNum);
+
+        if (
+          Number.isInteger(mealsNum) &&
+          mealsNum >= 1 &&
+          mealsNum <= 60
+        ) {
+          normalMealSlots.push({
+            mealId: meal._id.toString(),
+            date: meal.date,
+            dateValue: mealDate,
+            slot: "morning",
+            mealsNum,
+          });
+        }
+      }
+
+      // Night
+      if (
+        meal.night &&
+        meal.night.isExtraMeal !== true &&
+        meal.night.isCancelled !== true
+      ) {
+        const mealsNum = Number(meal.night.mealsNum);
+
+        if (
+          Number.isInteger(mealsNum) &&
+          mealsNum >= 1 &&
+          mealsNum <= 60
+        ) {
+          normalMealSlots.push({
+            mealId: meal._id.toString(),
+            date: meal.date,
+            dateValue: mealDate,
+            slot: "night",
+            mealsNum,
+          });
+        }
       }
     }
 
-    // ➔ Sort sequentially by date
-    targetMeals.sort((a, b) => {
-      const [dA, mA, yA] = a.date.split("/").map(Number);
-      const [dB, mB, yB] = b.date.split("/").map(Number);
-      return new Date(yA, mA - 1, dA) - new Date(yB, mB - 1, dB);
+    // ------------------------------------------------------------
+    // No normal meals available
+    // ------------------------------------------------------------
+    if (normalMealSlots.length === 0) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        meals: [],
+      });
+    }
+
+    // ------------------------------------------------------------
+    // Find today's date.
+    //
+    // We compare only the calendar date, not the current time.
+    // ------------------------------------------------------------
+    const now = new Date();
+
+    const todayStart = Date.UTC(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate()
+    );
+
+    // ------------------------------------------------------------
+    // Find the reference meal.
+    //
+    // Priority:
+    //   1. Latest normal meal today
+    //   2. Latest normal meal before today
+    //   3. Latest normal meal available
+    // ------------------------------------------------------------
+    let referenceIndex = -1;
+
+    for (let i = normalMealSlots.length - 1; i >= 0; i--) {
+      if (normalMealSlots[i].dateValue === todayStart) {
+        referenceIndex = i;
+        break;
+      }
+    }
+
+    if (referenceIndex === -1) {
+      for (let i = normalMealSlots.length - 1; i >= 0; i--) {
+        if (normalMealSlots[i].dateValue < todayStart) {
+          referenceIndex = i;
+          break;
+        }
+      }
+    }
+
+    if (referenceIndex === -1) {
+      referenceIndex = normalMealSlots.length - 1;
+    }
+
+    // ------------------------------------------------------------
+    // Determine the 60-meal cycle.
+    //
+    // Example:
+    //
+    // slots 0  - 59  = cycle 1
+    // slots 60 - 119 = cycle 2
+    // slots 120-179 = cycle 3
+    //
+    // Extra meals never enter this array.
+    // ------------------------------------------------------------
+    const cycleStartIndex =
+      Math.floor(referenceIndex / 60) * 60;
+
+    const cycleEndIndex = Math.min(
+      cycleStartIndex + 59,
+      normalMealSlots.length - 1
+    );
+
+    const cycleSlots = normalMealSlots.slice(
+      cycleStartIndex,
+      cycleEndIndex + 1
+    );
+
+    if (cycleSlots.length === 0) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        meals: [],
+      });
+    }
+
+    // ------------------------------------------------------------
+    // Determine the calendar date range of this 60-meal cycle.
+    // ------------------------------------------------------------
+    const cycleStartDate =
+      cycleSlots[0].dateValue;
+
+    const cycleEndDate =
+      cycleSlots[cycleSlots.length - 1].dateValue;
+
+    // ------------------------------------------------------------
+    // Return DAILY documents whose date falls inside the cycle.
+    //
+    // This is intentional.
+    //
+    // A Meal document contains BOTH:
+    //   morning
+    //   night
+    //
+    // Therefore we return the whole daily document instead of
+    // returning only individual slots.
+    //
+    // Extra meals inside this date range are automatically included.
+    // ------------------------------------------------------------
+    const targetMeals = allMeals.filter((meal) => {
+      const mealDate = getMealDate(meal);
+
+      return (
+        mealDate >= cycleStartDate &&
+        mealDate <= cycleEndDate
+      );
     });
 
+    // ------------------------------------------------------------
+    // Final chronological sorting
+    // ------------------------------------------------------------
+    targetMeals.sort((a, b) => {
+      const dateA = getMealDate(a);
+      const dateB = getMealDate(b);
+
+      if (dateA !== dateB) {
+        return dateA - dateB;
+      }
+
+      return (
+        new Date(a.createdAt || 0).getTime() -
+        new Date(b.createdAt || 0).getTime()
+      );
+    });
+
+    // ------------------------------------------------------------
+    // Response
+    // ------------------------------------------------------------
     return res.status(200).json({
       success: true,
       count: targetMeals.length,
-      meals: targetMeals
+      meals: targetMeals,
     });
-
   } catch (error) {
-    return res.status(500).json({ success: false, message: "Error fetching current cycle meals: " + error.message });
+    console.error("Error fetching meals:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch meals.",
+      error: error.message,
+    });
   }
 };
 

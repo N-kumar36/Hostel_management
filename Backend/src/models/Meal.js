@@ -76,11 +76,62 @@ const mealTimeSlotSchema = new mongoose.Schema(
       enum: ["veg", "egg", "paneer", "chicken", "fish", "mutton"],
       required: true,
     },
-    mealsNum: { type: String, default: "0" },
-    lockTime: { type: Date, required: true },
-    isLocked: { type: Boolean, default: false },
-    isCancelled: { type: Boolean, default: false },
+
+    // Normal meal cycle number.
+    // Always 1–60 for normal meals.
+    // Extra meals use "0".
+    mealsNum: {
+      type: String,
+      default: "0"
+    },
+
+    // ------------------------------------------------------------
+    // EXTRA / OCCASION MEAL
+    // ------------------------------------------------------------
+
+    // true = this meal does NOT belong to the normal 1–60 cycle.
+    isExtraMeal: {
+      type: Boolean,
+      default: false
+    },
+
+    // Display number for an extra meal.
+    // Example:
+    // extraMealNumber: "61"
+    // extraMealNumber: "62"
+    extraMealNumber: {
+      type: String,
+      default: null
+    },
+
+    // Optional occasion name.
+    // Example:
+    // "Freshers Party"
+    // "Durga Puja Special"
+    // "Hostel Annual Dinner"
+    occasion: {
+      type: String,
+      default: null,
+      trim: true
+    },
+
+    lockTime: {
+      type: Date,
+      required: true
+    },
+
+    isLocked: {
+      type: Boolean,
+      default: false
+    },
+
+    isCancelled: {
+      type: Boolean,
+      default: false
+    },
+
     studentVotes: [embeddedStudentVoteSchema],
+
     guestRequests: [embeddedGuestRequestSchema]
   },
   { _id: false }

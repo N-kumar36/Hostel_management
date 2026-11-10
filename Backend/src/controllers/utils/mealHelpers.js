@@ -1,11 +1,10 @@
 import Meal from "../../models/Meal.js";
 
-
 export const recalculateMealNumbers = async (hostelId) => {
-  // 1. Fetch all documents for this specific hostel
+  // Fetch all documents for this hostel.
   const allMeals = await Meal.find({ hostelId });
 
-  // 2. Sort them accurately in JavaScript using true date comparison operations
+  // Sort chronologically.
   allMeals.sort((a, b) => {
     const [dayA, monthA, yearA] = a.date.split("/").map(Number);
     const [dayB, monthB, yearB] = b.date.split("/").map(Number);
@@ -16,19 +15,33 @@ export const recalculateMealNumbers = async (hostelId) => {
     if (dateA.getTime() !== dateB.getTime()) {
       return dateA - dateB;
     }
-    // Secondary fallback sorting parameter if dates match exactly
+
+    // Secondary fallback: creation time.
     return (a.createdAt || 0) - (b.createdAt || 0);
   });
 
   let sequentialCounter = 0;
 
-  for (let meal of allMeals) {
+  for (const meal of allMeals) {
     let modified = false;
 
-    // --- Process Morning Slot ---
-    if (!meal.morning.isCancelled) {
+    // ============================================================
+    // MORNING
+    // ============================================================
+
+    if (meal.morning.isExtraMeal === true) {
+      // Extra/occasion meals NEVER participate in the 1–60 cycle.
+      // Their number is stored separately in extraMealNumber.
+
+      if (meal.morning.mealsNum !== "0") {
+        meal.morning.mealsNum = "0";
+        modified = true;
+      }
+    } else if (!meal.morning.isCancelled) {
       sequentialCounter++;
-      // Reset count back to 1 when hitting package maximum baseline cycle limits (e.g., 61 becomes 1)
+
+      // Normal 60-meal cycle:
+      // 1, 2, 3, ... 58, 59, 60, 1, 2, ...
       const relativeNum = ((sequentialCounter - 1) % 60) + 1;
 
       if (meal.morning.mealsNum !== relativeNum.toString()) {
@@ -42,9 +55,21 @@ export const recalculateMealNumbers = async (hostelId) => {
       }
     }
 
-    // --- Process Night Slot ---
-    if (!meal.night.isCancelled) {
+    // ============================================================
+    // NIGHT
+    // ============================================================
+
+    if (meal.night.isExtraMeal === true) {
+      // Extra/occasion meals NEVER participate in the 1–60 cycle.
+      // Their number is stored separately in extraMealNumber.
+
+      if (meal.night.mealsNum !== "0") {
+        meal.night.mealsNum = "0";
+        modified = true;
+      }
+    } else if (!meal.night.isCancelled) {
       sequentialCounter++;
+
       const relativeNum = ((sequentialCounter - 1) % 60) + 1;
 
       if (meal.night.mealsNum !== relativeNum.toString()) {
