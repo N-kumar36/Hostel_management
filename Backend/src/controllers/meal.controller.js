@@ -1,8 +1,8 @@
 import moment from "moment";
 import Meal from "../models/Meal.js";
 import WeeklyRoutine from "../models/WeeklyRoutine.js";
+import { recalculateMealNumbers } from "./utils/mealHelpers.js"; // Replace with your actual utility path
 
-import { reserveNextMealNumber } from "../services/mealCycleService.js";
 
 
 /**
@@ -50,43 +50,39 @@ export const createMeal = async (req, res) => {
      *   extraMealNumber = "61", "62", etc.
      */
     const prepareSlot = (slot, defaultLockTime) => {
-  const isExtraMeal = slot.isExtraMeal === true;
+      const isExtraMeal = slot.isExtraMeal === true;
 
-  return {
-    manu: slot.manu,
+      return {
+        manu: slot.manu,
 
-    // Temporary value.
-    // A normal meal will receive its permanent number below.
-    mealsNum: "0",
+        // Extra meals NEVER receive a normal cycle number.
+        mealsNum: "0",
 
-    // Extra/cancelled meals do not belong to a cycle.
-    cycleNumber: null,
+        isExtraMeal,
 
-    isExtraMeal,
+        extraMealNumber: isExtraMeal
+          ? (slot.extraMealNumber != null
+              ? String(slot.extraMealNumber)
+              : null)
+          : null,
 
-    extraMealNumber: isExtraMeal
-      ? (slot.extraMealNumber != null
-          ? String(slot.extraMealNumber)
-          : null)
-      : null,
+        occasion: isExtraMeal
+          ? (slot.occasion?.trim() || null)
+          : null,
 
-    occasion: isExtraMeal
-      ? (slot.occasion?.trim() || null)
-      : null,
+        lockTime: parseLockTime(
+          date,
+          slot.lockTime || defaultLockTime
+        ),
 
-    lockTime: parseLockTime(
-      date,
-      slot.lockTime || defaultLockTime
-    ),
+        isLocked: false,
 
-    isLocked: false,
+        isCancelled: slot.isCancelled === true,
 
-    isCancelled: slot.isCancelled === true,
-
-    studentVotes: [],
-    guestRequests: []
-  };
-};
+        studentVotes: [],
+        guestRequests: []
+      };
+    };
 
     const existingMeal = await Meal.findOne({
       date,
@@ -98,234 +94,146 @@ export const createMeal = async (req, res) => {
     // ============================================================
 
     if (existingMeal) {
-  // ============================================================
-  // UPDATE EXISTING DAILY MEAL
-  // ============================================================
-
-  const updateExistingSlot = async (
-    existingSlot,
-    incomingSlot,
-    defaultLockTime
-  ) => {
-    const wasExtra = existingSlot.isExtraMeal === true;
-    const wasCancelled = existingSlot.isCancelled === true;
-
-    const hasExtraFlag =
-      incomingSlot.isExtraMeal !== undefined;
-
-    const isExtra = hasExtraFlag
-      ? incomingSlot.isExtraMeal === true
-      : wasExtra;
-
-    const hasCancellationFlag =
-      incomingSlot.isCancelled !== undefined;
-
-    const isCancelled = hasCancellationFlag
-      ? incomingSlot.isCancelled === true
-      : wasCancelled;
-
-    // ----------------------------------------------------------
-    // Basic meal information
-    // ----------------------------------------------------------
-
-    existingSlot.manu = incomingSlot.manu;
-
-    existingSlot.lockTime = parseLockTime(
-      date,
-      incomingSlot.lockTime || defaultLockTime
-    );
-
-    // ----------------------------------------------------------
-    // EXTRA MEAL
-    // ----------------------------------------------------------
-
-    if (isExtra) {
-      existingSlot.isExtraMeal = true;
-
-      // Extra meals never consume a 1–60 number.
-      existingSlot.mealsNum = "0";
-      existingSlot.cycleNumber = null;
-
-      existingSlot.extraMealNumber =
-        incomingSlot.extraMealNumber != null
-          ? String(incomingSlot.extraMealNumber)
-          : null;
-
-      existingSlot.occasion =
-        incomingSlot.occasion?.trim() || null;
-
-      // Cancellation state can still be updated.
-      existingSlot.isCancelled = isCancelled;
-
-      return;
-    }
-
-    // ----------------------------------------------------------
-    // NORMAL MEAL
-    // ----------------------------------------------------------
-
-    existingSlot.isExtraMeal = false;
-    existingSlot.extraMealNumber = null;
-    existingSlot.occasion = null;
-
-    // ----------------------------------------------------------
-    // CANCELLED NORMAL MEAL
-    // ----------------------------------------------------------
-
-    if (isCancelled) {
-      existingSlot.isCancelled = true;
-
       /*
-       * If this meal already had a permanent number,
-       * KEEP it for historical integrity.
-       *
-       * We do NOT return the number to the counter because
-       * doing so could cause duplicate/reused meal numbers.
-       *
-       * A cancelled-at-creation meal has no number at all.
+       * MORNING
        */
-      if (
-        !existingSlot.mealsNum ||
-        existingSlot.mealsNum === "0" ||
-        !existingSlot.cycleNumber
-      ) {
-        existingSlot.mealsNum = "0";
-        existingSlot.cycleNumber = null;
+      existingMeal.morning.manu = morning.manu;
+
+      existingMeal.morning.lockTime = parseLockTime(
+        date,
+        morning.lockTime
+      );
+
+      if (morning.isCancelled !== undefined) {
+        existingMeal.morning.isCancelled = morning.isCancelled;
       }
 
-      return;
+      if (morning.isExtraMeal !== undefined) {
+        existingMeal.morning.isExtraMeal =
+          morning.isExtraMeal === true;
+
+        if (existingMeal.morning.isExtraMeal) {
+          existingMeal.morning.mealsNum = "0";
+
+          existingMeal.morning.extraMealNumber =
+            morning.extraMealNumber != null
+              ? String(morning.extraMealNumber)
+              : null;
+
+          existingMeal.morning.occasion =
+            morning.occasion?.trim() || null;
+        } else {
+          // Converting extra → normal
+          existingMeal.morning.mealsNum = "0";
+          existingMeal.morning.extraMealNumber = null;
+          existingMeal.morning.occasion = null;
+        }
+      } else if (existingMeal.morning.isExtraMeal) {
+        // Existing extra meal remains isolated from cycle.
+        existingMeal.morning.mealsNum = "0";
+
+        if (morning.extraMealNumber !== undefined) {
+          existingMeal.morning.extraMealNumber =
+            morning.extraMealNumber != null
+              ? String(morning.extraMealNumber)
+              : null;
+        }
+
+        if (morning.occasion !== undefined) {
+          existingMeal.morning.occasion =
+            morning.occasion?.trim() || null;
+        }
+      }
+
+      /*
+       * NIGHT
+       */
+      existingMeal.night.manu = night.manu;
+
+      existingMeal.night.lockTime = parseLockTime(
+        date,
+        night.lockTime
+      );
+
+      if (night.isCancelled !== undefined) {
+        existingMeal.night.isCancelled = night.isCancelled;
+      }
+
+      if (night.isExtraMeal !== undefined) {
+        existingMeal.night.isExtraMeal =
+          night.isExtraMeal === true;
+
+        if (existingMeal.night.isExtraMeal) {
+          existingMeal.night.mealsNum = "0";
+
+          existingMeal.night.extraMealNumber =
+            night.extraMealNumber != null
+              ? String(night.extraMealNumber)
+              : null;
+
+          existingMeal.night.occasion =
+            night.occasion?.trim() || null;
+        } else {
+          // Converting extra → normal
+          existingMeal.night.mealsNum = "0";
+          existingMeal.night.extraMealNumber = null;
+          existingMeal.night.occasion = null;
+        }
+      } else if (existingMeal.night.isExtraMeal) {
+        existingMeal.night.mealsNum = "0";
+
+        if (night.extraMealNumber !== undefined) {
+          existingMeal.night.extraMealNumber =
+            night.extraMealNumber != null
+              ? String(night.extraMealNumber)
+              : null;
+        }
+
+        if (night.occasion !== undefined) {
+          existingMeal.night.occasion =
+            night.occasion?.trim() || null;
+        }
+      }
+
+      await existingMeal.save();
+
+      // Recalculate ONLY normal 1–60 meals.
+      await recalculateMealNumbers(hostelId);
+
+      const updatedMeal = await Meal.findOne({
+        date,
+        hostelId
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: "Meal plan updated successfully.",
+        meal: updatedMeal
+      });
     }
-
-    // ----------------------------------------------------------
-    // NORMAL + ACTIVE MEAL
-    // ----------------------------------------------------------
-
-    existingSlot.isCancelled = false;
-
-    /*
-     * If the meal already has a permanent number,
-     * keep it unchanged.
-     *
-     * This is important:
-     * changing menu/lock time must NOT change historical
-     * meal numbering.
-     */
-    if (
-      existingSlot.mealsNum &&
-      existingSlot.mealsNum !== "0" &&
-      existingSlot.cycleNumber
-    ) {
-      return;
-    }
-
-    /*
-     * This happens when:
-     *
-     * 1. Extra → Normal
-     * 2. Cancelled → Normal
-     * 3. Old meal has no assigned number
-     *
-     * Reserve a completely new permanent number.
-     */
-    const reserved = await reserveNextMealNumber(hostelId);
-
-    existingSlot.mealsNum = reserved.mealsNum;
-    existingSlot.cycleNumber = reserved.cycleNumber;
-  };
-
-  // ============================================================
-  // MORNING
-  // ============================================================
-
-  await updateExistingSlot(
-    existingMeal.morning,
-    morning,
-    morning.lockTime
-  );
-
-  // ============================================================
-  // NIGHT
-  // ============================================================
-
-  await updateExistingSlot(
-    existingMeal.night,
-    night,
-    night.lockTime
-  );
-
-  // ============================================================
-  // SAVE
-  // ============================================================
-
-  await existingMeal.save();
-
-  const updatedMeal = await Meal.findOne({
-    date,
-    hostelId
-  });
-
-  return res.status(200).json({
-    success: true,
-    message: "Meal plan updated successfully.",
-    meal: updatedMeal
-  });
-}
 
     // ============================================================
     // CREATE NEW DAILY MEAL
     // ============================================================
 
-    // ============================================================
-// CREATE NEW DAILY MEAL
-// ============================================================
+    const meal = await Meal.create({
+      hostelId,
+      date,
 
-const morningSlot = prepareSlot(
-  morning,
-  morning.lockTime
-);
+      morning: prepareSlot(
+        morning,
+        morning.lockTime
+      ),
 
-const nightSlot = prepareSlot(
-  night,
-  night.lockTime
-);
+      night: prepareSlot(
+        night,
+        night.lockTime
+      )
+    });
 
-// ------------------------------------------------------------
-// Reserve permanent meal numbers.
-//
-// IMPORTANT:
-// Morning and night share ONE global sequence.
-//
-// Example:
-// Morning #1
-// Night   #2
-// Next day morning #3
-//
-// Extra and cancelled meals do not consume a number.
-// ------------------------------------------------------------
-
-if (!morningSlot.isExtraMeal && !morningSlot.isCancelled) {
-  const reservedMorning = await reserveNextMealNumber(hostelId);
-
-  morningSlot.mealsNum = reservedMorning.mealsNum;
-  morningSlot.cycleNumber = reservedMorning.cycleNumber;
-}
-
-if (!nightSlot.isExtraMeal && !nightSlot.isCancelled) {
-  const reservedNight = await reserveNextMealNumber(hostelId);
-
-  nightSlot.mealsNum = reservedNight.mealsNum;
-  nightSlot.cycleNumber = reservedNight.cycleNumber;
-}
-
-const meal = await Meal.create({
-  hostelId,
-  date,
-
-  morning: morningSlot,
-  night: nightSlot
-});
-
-
+    // Assign normal 1–60 numbers.
+    // Extra meals are ignored by the helper.
+    await recalculateMealNumbers(hostelId);
 
     const finalSavedMeal = await Meal.findById(meal._id);
 
@@ -393,87 +301,17 @@ export const autoGenerateMeals = async (req, res) => {
         const existingMeal = await Meal.findOne({ date: dateString, hostelId });
 
         if (!existingMeal) {
-  const morningLock = new Date(
-    Date.UTC(
-      currentDate.getFullYear(),
-      currentDate.getMonth(),
-      currentDate.getDate(),
-      mHour,
-      mMin,
-      0
-    )
-  );
+          const morningLock = new Date(Date.UTC(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), mHour, mMin, 0));
+          const nightLock = new Date(Date.UTC(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), nHour, nMin, 0));
 
-  const nightLock = new Date(
-    Date.UTC(
-      currentDate.getFullYear(),
-      currentDate.getMonth(),
-      currentDate.getDate(),
-      nHour,
-      nMin,
-      0
-    )
-  );
-
-  // ============================================================
-  // RESERVE PERMANENT NUMBERS
-  // ============================================================
-
-  // Morning gets the next number first.
-  const reservedMorning =
-    await reserveNextMealNumber(hostelId);
-
-  // Night gets the number immediately after morning.
-  const reservedNight =
-    await reserveNextMealNumber(hostelId);
-
-  // ============================================================
-  // CREATE DAILY MEAL
-  // ============================================================
-
-  await Meal.create({
-    hostelId,
-    date: dateString,
-
-    morning: {
-      manu: dayRoutine.morning,
-
-      mealsNum: reservedMorning.mealsNum,
-      cycleNumber: reservedMorning.cycleNumber,
-
-      isExtraMeal: false,
-      extraMealNumber: null,
-      occasion: null,
-
-      lockTime: morningLock,
-      isLocked: false,
-      isCancelled: false,
-
-      studentVotes: [],
-      guestRequests: []
-    },
-
-    night: {
-      manu: dayRoutine.night,
-
-      mealsNum: reservedNight.mealsNum,
-      cycleNumber: reservedNight.cycleNumber,
-
-      isExtraMeal: false,
-      extraMealNumber: null,
-      occasion: null,
-
-      lockTime: nightLock,
-      isLocked: false,
-      isCancelled: false,
-
-      studentVotes: [],
-      guestRequests: []
-    }
-  });
-
-  createdCount++;
-}
+          await Meal.create({
+            hostelId,
+            date: dateString,
+            morning: { manu: dayRoutine.morning, mealsNum: "0", lockTime: morningLock, isCancelled: false, studentVotes: [], guestRequests: [] },
+            night: { manu: dayRoutine.night, mealsNum: "0", lockTime: nightLock, isCancelled: false, studentVotes: [], guestRequests: [] }
+          });
+          createdCount++;
+        }
       }
       currentDate.setDate(currentDate.getDate() + 1);
     }
@@ -495,12 +333,8 @@ export const autoGenerateMeals = async (req, res) => {
 export const updateMeal = async (req, res) => {
   try {
     const { mealId } = req.params;
-    const hostelId = req.user.hostelId;
 
-    // ============================================================
-    // 1. FETCH TARGET MEAL
-    // ============================================================
-
+    // 1. Fetch target meal
     const existingMeal = await Meal.findById(mealId);
 
     if (!existingMeal) {
@@ -510,206 +344,256 @@ export const updateMeal = async (req, res) => {
       });
     }
 
+    const updateData = {};
+    const clearMorningArrays = {};
+    const clearNightArrays = {};
+
     // ============================================================
-    // HELPER: UPDATE ONE SLOT
+    // MORNING SLOT
     // ============================================================
 
-    const updateSlot = async (existingSlot, incomingSlot) => {
-      if (!incomingSlot) {
-        return;
-      }
+    if (req.body.morning) {
+      const incomingMorning = req.body.morning;
 
-      const wasExtra = existingSlot.isExtraMeal === true;
-      const wasCancelled = existingSlot.isCancelled === true;
-
-      const hasExtraFlag =
-        incomingSlot.isExtraMeal !== undefined;
-
-      const hasCancellationFlag =
-        incomingSlot.isCancelled !== undefined;
-
-      const isExtra = hasExtraFlag
-        ? incomingSlot.isExtraMeal === true
-        : wasExtra;
-
-      const isCancelled = hasCancellationFlag
-        ? incomingSlot.isCancelled === true
-        : wasCancelled;
-
-      // ==========================================================
-      // MENU CHANGE
-      // ==========================================================
+      // ----------------------------------------------------------
+      // Menu change
+      // ----------------------------------------------------------
 
       if (
-        incomingSlot.manu &&
-        incomingSlot.manu !== existingSlot.manu
+        incomingMorning.manu &&
+        incomingMorning.manu !== existingMeal.morning.manu
       ) {
-        existingSlot.manu = incomingSlot.manu;
+        updateData["morning.manu"] = incomingMorning.manu;
 
-        // Existing behavior:
-        // changing menu clears previous voting/request data.
-        existingSlot.studentVotes = [];
-        existingSlot.guestRequests = [];
+        clearMorningArrays["morning.studentVotes"] = [];
+        clearMorningArrays["morning.guestRequests"] = [];
       }
 
-      // ==========================================================
-      // LOCK TIME
-      // ==========================================================
+      // ----------------------------------------------------------
+      // Cancellation
+      // ----------------------------------------------------------
 
-      if (incomingSlot.lockTime) {
+      if (incomingMorning.isCancelled !== undefined) {
+        updateData["morning.isCancelled"] =
+          incomingMorning.isCancelled;
+      }
+
+      // ----------------------------------------------------------
+      // Lock time
+      // ----------------------------------------------------------
+
+      if (incomingMorning.lockTime) {
         const timePart =
-          incomingSlot.lockTime.includes("T")
-            ? incomingSlot.lockTime
+          incomingMorning.lockTime.includes("T")
+            ? incomingMorning.lockTime
                 .split("T")[1]
                 .substring(0, 5)
-            : incomingSlot.lockTime.substring(0, 5);
+            : incomingMorning.lockTime.substring(0, 5);
 
         const [day, month, year] =
           existingMeal.date.split("/");
 
-        existingSlot.lockTime = new Date(
-          `${year}-${month}-${day}T${timePart}:00.000Z`
-        );
+        updateData["morning.lockTime"] =
+          new Date(
+            `${year}-${month}-${day}T${timePart}:00.000Z`
+          );
       }
 
-      // ==========================================================
+      // ----------------------------------------------------------
       // EXTRA MEAL
-      // ==========================================================
+      // ----------------------------------------------------------
 
-      if (isExtra) {
-        existingSlot.isExtraMeal = true;
+      if (incomingMorning.isExtraMeal !== undefined) {
+        const isExtra =
+          incomingMorning.isExtraMeal === true;
 
-        // Extra meals never consume the 1–60 sequence.
-        existingSlot.mealsNum = "0";
-        existingSlot.cycleNumber = null;
+        updateData["morning.isExtraMeal"] = isExtra;
 
-        existingSlot.extraMealNumber =
-          incomingSlot.extraMealNumber != null
-            ? String(incomingSlot.extraMealNumber)
-            : existingSlot.extraMealNumber ?? null;
+        if (isExtra) {
+          // Extra meals never participate in 1–60 cycle.
+          updateData["morning.mealsNum"] = "0";
 
-        if (incomingSlot.occasion !== undefined) {
-          existingSlot.occasion =
-            incomingSlot.occasion?.trim() || null;
+          if (
+            incomingMorning.extraMealNumber !== undefined
+          ) {
+            updateData["morning.extraMealNumber"] =
+              incomingMorning.extraMealNumber != null
+                ? String(incomingMorning.extraMealNumber)
+                : null;
+          }
+
+          if (incomingMorning.occasion !== undefined) {
+            updateData["morning.occasion"] =
+              incomingMorning.occasion?.trim() || null;
+          }
+        } else {
+          // Convert extra → normal.
+          // recalculateMealNumbers() will assign the correct 1–60 number.
+          updateData["morning.mealsNum"] = "0";
+          updateData["morning.extraMealNumber"] = null;
+          updateData["morning.occasion"] = null;
         }
+      } else if (existingMeal.morning.isExtraMeal) {
+        // Existing extra meal remains isolated.
+        updateData["morning.mealsNum"] = "0";
 
-        existingSlot.isCancelled = isCancelled;
-
-        return;
-      }
-
-      // ==========================================================
-      // NORMAL MEAL
-      // ==========================================================
-
-      existingSlot.isExtraMeal = false;
-      existingSlot.extraMealNumber = null;
-      existingSlot.occasion = null;
-
-      // ==========================================================
-      // CANCELLED NORMAL MEAL
-      // ==========================================================
-
-      if (isCancelled) {
-        existingSlot.isCancelled = true;
-
-        /*
-         * If the slot already had a permanent number,
-         * preserve it.
-         *
-         * We do not reuse an already issued number because
-         * another meal may subsequently receive a new number.
-         */
         if (
-          !existingSlot.mealsNum ||
-          existingSlot.mealsNum === "0" ||
-          !existingSlot.cycleNumber
+          incomingMorning.extraMealNumber !== undefined
         ) {
-          existingSlot.mealsNum = "0";
-          existingSlot.cycleNumber = null;
+          updateData["morning.extraMealNumber"] =
+            incomingMorning.extraMealNumber != null
+              ? String(incomingMorning.extraMealNumber)
+              : null;
         }
 
-        return;
+        if (incomingMorning.occasion !== undefined) {
+          updateData["morning.occasion"] =
+            incomingMorning.occasion?.trim() || null;
+        }
       }
+    }
 
-      // ==========================================================
-      // ACTIVE NORMAL MEAL
-      // ==========================================================
+    // ============================================================
+    // NIGHT SLOT
+    // ============================================================
 
-      existingSlot.isCancelled = false;
+    if (req.body.night) {
+      const incomingNight = req.body.night;
 
-      /*
-       * Already numbered normal meal:
-       *
-       * Keep the existing number.
-       *
-       * This prevents menu/lock-time edits from changing
-       * historical numbering.
-       */
+      // ----------------------------------------------------------
+      // Menu change
+      // ----------------------------------------------------------
+
       if (
-        existingSlot.mealsNum &&
-        existingSlot.mealsNum !== "0" &&
-        existingSlot.cycleNumber
+        incomingNight.manu &&
+        incomingNight.manu !== existingMeal.night.manu
       ) {
-        return;
+        updateData["night.manu"] = incomingNight.manu;
+
+        clearNightArrays["night.studentVotes"] = [];
+        clearNightArrays["night.guestRequests"] = [];
       }
 
-      /*
-       * No permanent number exists.
-       *
-       * This can happen when:
-       *
-       *   Extra     → Normal
-       *   Cancelled → Normal
-       *   Old data  → Normal
-       *
-       * Reserve a fresh permanent number.
-       */
-      const reserved =
-        await reserveNextMealNumber(hostelId);
+      // ----------------------------------------------------------
+      // Cancellation
+      // ----------------------------------------------------------
 
-      existingSlot.mealsNum =
-        reserved.mealsNum;
+      if (incomingNight.isCancelled !== undefined) {
+        updateData["night.isCancelled"] =
+          incomingNight.isCancelled;
+      }
 
-      existingSlot.cycleNumber =
-        reserved.cycleNumber;
+      // ----------------------------------------------------------
+      // Lock time
+      // ----------------------------------------------------------
+
+      if (incomingNight.lockTime) {
+        const timePart =
+          incomingNight.lockTime.includes("T")
+            ? incomingNight.lockTime
+                .split("T")[1]
+                .substring(0, 5)
+            : incomingNight.lockTime.substring(0, 5);
+
+        const [day, month, year] =
+          existingMeal.date.split("/");
+
+        updateData["night.lockTime"] =
+          new Date(
+            `${year}-${month}-${day}T${timePart}:00.000Z`
+          );
+      }
+
+      // ----------------------------------------------------------
+      // EXTRA MEAL
+      // ----------------------------------------------------------
+
+      if (incomingNight.isExtraMeal !== undefined) {
+        const isExtra =
+          incomingNight.isExtraMeal === true;
+
+        updateData["night.isExtraMeal"] = isExtra;
+
+        if (isExtra) {
+          // Extra meals never participate in 1–60 cycle.
+          updateData["night.mealsNum"] = "0";
+
+          if (
+            incomingNight.extraMealNumber !== undefined
+          ) {
+            updateData["night.extraMealNumber"] =
+              incomingNight.extraMealNumber != null
+                ? String(incomingNight.extraMealNumber)
+                : null;
+          }
+
+          if (incomingNight.occasion !== undefined) {
+            updateData["night.occasion"] =
+              incomingNight.occasion?.trim() || null;
+          }
+        } else {
+          // Convert extra → normal.
+          updateData["night.mealsNum"] = "0";
+          updateData["night.extraMealNumber"] = null;
+          updateData["night.occasion"] = null;
+        }
+      } else if (existingMeal.night.isExtraMeal) {
+        // Existing extra meal remains isolated.
+        updateData["night.mealsNum"] = "0";
+
+        if (
+          incomingNight.extraMealNumber !== undefined
+        ) {
+          updateData["night.extraMealNumber"] =
+            incomingNight.extraMealNumber != null
+              ? String(incomingNight.extraMealNumber)
+              : null;
+        }
+
+        if (incomingNight.occasion !== undefined) {
+          updateData["night.occasion"] =
+            incomingNight.occasion?.trim() || null;
+        }
+      }
+    }
+
+    // ============================================================
+    // BUILD UPDATE PAYLOAD
+    // ============================================================
+
+    const finalUpdatePayload = {
+      $set: {
+        ...updateData,
+        ...clearMorningArrays,
+        ...clearNightArrays
+      }
     };
 
     // ============================================================
-    // 2. UPDATE MORNING
+    // SAVE
     // ============================================================
 
-    await updateSlot(
-      existingMeal.morning,
-      req.body.morning
+    const updatedMeal = await Meal.findByIdAndUpdate(
+      mealId,
+      finalUpdatePayload,
+      {
+        new: true,
+        runValidators: true
+      }
     );
 
-    // ============================================================
-    // 3. UPDATE NIGHT
-    // ============================================================
-
-    await updateSlot(
-      existingMeal.night,
-      req.body.night
+    // Recalculate normal cycle only.
+    await recalculateMealNumbers(
+      req.user.hostelId
     );
 
-    // ============================================================
-    // 4. SAVE
-    // ============================================================
-
-    await existingMeal.save();
-
-    // ============================================================
-    // 5. FETCH FINAL DATA
-    // ============================================================
-
-    const finalMeal =
-      await Meal.findById(mealId);
+    // Fetch again so response contains recalculated numbers.
+    const finalMeal = await Meal.findById(mealId);
 
     return res.status(200).json({
       success: true,
       message: "Meal configuration synchronized successfully.",
-      meal: finalMeal
+      meal: finalMeal || updatedMeal
     });
 
   } catch (error) {
@@ -1196,41 +1080,36 @@ export const getAllMeals = async (req, res) => {
     }
 
     // ------------------------------------------------------------
-// Determine the current 60-meal cycle using the permanently
-// stored cycleNumber.
-//
-// IMPORTANT:
-// Do NOT calculate the cycle from array indexes.
-//
-// Meal documents may be deleted by old TTL rules, or there may
-// be long gaps between meal periods. The cycleNumber stored on
-// each slot is independent of document retention.
-// ------------------------------------------------------------
+    // Determine the 60-meal cycle.
+    //
+    // Example:
+    //
+    // slots 0  - 59  = cycle 1
+    // slots 60 - 119 = cycle 2
+    // slots 120-179 = cycle 3
+    //
+    // Extra meals never enter this array.
+    // ------------------------------------------------------------
+    const cycleStartIndex =
+      Math.floor(referenceIndex / 60) * 60;
 
-const targetCycleNumber =
-  normalMealSlots[referenceIndex].cycleNumber;
+    const cycleEndIndex = Math.min(
+      cycleStartIndex + 59,
+      normalMealSlots.length - 1
+    );
 
-if (!targetCycleNumber) {
-  return res.status(200).json({
-    success: true,
-    count: 0,
-    meals: [],
-  });
-}
+    const cycleSlots = normalMealSlots.slice(
+      cycleStartIndex,
+      cycleEndIndex + 1
+    );
 
-// Get every normal meal belonging to the same cycle.
-const cycleSlots = normalMealSlots.filter(
-  (slot) =>
-    slot.cycleNumber === targetCycleNumber
-);
-
-if (cycleSlots.length === 0) {
-  return res.status(200).json({
-    success: true,
-    count: 0,
-    meals: [],
-  });
-}
+    if (cycleSlots.length === 0) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        meals: [],
+      });
+    }
 
     // ------------------------------------------------------------
     // Determine the calendar date range of this 60-meal cycle.

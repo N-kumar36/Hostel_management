@@ -85,12 +85,6 @@ const mealTimeSlotSchema = new mongoose.Schema(
       default: "0"
     },
 
-    cycleNumber: {
-  type: Number,
-  default: null,
-  min: 1,
-},
-
     // ------------------------------------------------------------
     // EXTRA / OCCASION MEAL
     // ------------------------------------------------------------
@@ -172,6 +166,7 @@ dailyMealSchema.index({ hostelId: 1, date: 1 }, { unique: true });
 dailyMealSchema.index({ hostelId: 1, date: 1, "morning.studentVotes.userId": 1 }, { unique: true, sparse: true });
 dailyMealSchema.index({ hostelId: 1, date: 1, "night.studentVotes.userId": 1 }, { unique: true, sparse: true });
 
-
+// TTL Index: MongoDB automatically purges documents older than 100 days (100 * 24 * 60 * 60 = 8,640,000 seconds)
+dailyMealSchema.index({ createdAt: 1 }, { expireAfterSeconds: 8640000 });
 
 export default mongoose.models.Meal || mongoose.model("Meal", dailyMealSchema);
