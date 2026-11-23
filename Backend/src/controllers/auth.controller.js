@@ -8,6 +8,7 @@ import { generateToken } from "../utils/generateToken.js";
 
 export const sendOTP = async (req, res) => {
   const { email, phone } = req.body;
+  console.log("sendOTP called with email:", email, "and phone:", phone);
   try {
     const exists = await User.findOne({ email: email.toLowerCase() });
     if (exists) {
@@ -23,7 +24,7 @@ export const sendOTP = async (req, res) => {
       { upsert: true, new: true }
     );
 
-    await sendEmail(email, "BOYS Hostel OTP Verification", `
+    const send = await sendEmail(email, "BOYS Hostel OTP Verification", `
   <div style="font-family: Arial, sans-serif; background:#f4f4f4; padding:30px;">
     <div style="max-width:500px; margin:auto; background:#ffffff; padding:25px; border-radius:8px; text-align:center;">
       
@@ -53,6 +54,12 @@ export const sendOTP = async (req, res) => {
     </div>
   </div>
   `);
+
+    if (!send) {
+      return res.status(500).json({
+        success: false, message: "Otp Not send"
+      })
+    }
 
     res.json({ success: true, message: "OTP sent successfully" });
   } catch (err) {
@@ -322,7 +329,7 @@ export const OtpForgetPass = async (req, res) => {
       { upsert: true, new: true }
     );
 
-    await sendEmail(
+    const send = await sendEmail(
       email,
       "BOYS Hostel OTP Verification",
       `
@@ -361,6 +368,10 @@ export const OtpForgetPass = async (req, res) => {
   </div>
   `
     );
+
+    if (!send) {
+      return res.status(500).json({ success: false, message: "Failed to send OTP email" });
+    }
 
     res.json({ success: true, message: "OTP sent successfully" });
 
