@@ -1,3 +1,11 @@
+# Common ignores
+**/node_modules/
+**/.env
+**/.env.*
+!**/.env.example
+**/*.log
+**/.firebase/
+
 # Node
 Backend/node_modules
 Backend/.env
